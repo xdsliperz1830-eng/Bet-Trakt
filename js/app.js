@@ -842,8 +842,34 @@
 
   const form = $('#bet-form');
 
+  // Sign for American odds, set by the minus / plus buttons. The input itself holds just the number.
+  let oddsSign = '-';
+
+  function setOddsSign(sign) {
+    oddsSign = sign === '+' ? '+' : '-';
+    $$('#odds-sign button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sign === oddsSign)));
+  }
+
+  /** Put odds text in the field, moving any leading sign onto the minus / plus buttons. */
+  function setOddsValue(text) {
+    const v = String(text || '').trim().replace(/^[−–]/, '-');
+    const m = v.match(/^([+-])\s*(.*)$/);
+    if (m && state.settings.oddsFormat !== 'decimal') {
+      setOddsSign(m[1]);
+      form.odds.value = m[2];
+    } else {
+      form.odds.value = v;
+    }
+  }
+
+  function oddsText() {
+    const v = form.odds.value.trim();
+    if (state.settings.oddsFormat === 'decimal' || !v) return v;
+    return oddsSign + v.replace(/^[+-]/, '');
+  }
+
   function oddsFromForm() {
-    return C.parseOdds(form.odds.value, state.settings.oddsFormat);
+    return C.parseOdds(oddsText(), state.settings.oddsFormat);
   }
 
   function stakeDollarsFromForm(unitAtEntry) {
@@ -868,10 +894,13 @@
     const odds = oddsFromForm();
     const fmt = state.settings.oddsFormat;
     $('#odds-label').textContent = 'Odds (' + (fmt === 'decimal' ? 'decimal' : 'American') + ')';
-    form.odds.placeholder = fmt === 'decimal' ? '1.91' : '-110';
+    form.odds.placeholder = fmt === 'decimal' ? '1.91' : '110';
+    $('#odds-sign').hidden = fmt === 'decimal';
     $('#odds-hint').textContent = Number.isFinite(odds)
-      ? 'Break-even ' + pct(C.impliedProbability(odds), false) + ' · ' + C.formatOdds(odds, fmt === 'decimal' ? 'american' : 'decimal')
-      : form.odds.value ? 'Invalid odds' : ' ';
+      ? (fmt === 'decimal'
+        ? C.formatOdds(odds, 'american') + ' · break-even ' + pct(C.impliedProbability(odds), false)
+        : C.formatOdds(odds, 'american') + ' · ' + (oddsSign === '-' ? 'favorite' : 'underdog') + ' · break-even ' + pct(C.impliedProbability(odds), false))
+      : form.odds.value ? (fmt === 'decimal' ? 'Enter decimal odds above 1.00' : 'Enter 100 or more, like 110 or 150') : ' ';
     $('#confidence-hint').textContent = C.CONFIDENCE_UNITS[confidence] + 'u at confidence ' + confidence;
 
     const unit = formUnit();
@@ -930,6 +959,7 @@
   function resetForm() {
     setBookOptions();
     form.reset();
+    setOddsSign('-');
     form.id.value = '';
     form.date.value = today();
     $('#f-stake-mode').value = 'dollars';
@@ -952,7 +982,7 @@
     form.book.value = b.book || '';
     form.event.value = b.event || '';
     form.selection.value = b.selection || '';
-    form.odds.value = C.formatOdds(Number(b.odds), state.settings.oddsFormat);
+    setOddsValue(C.formatOdds(Number(b.odds), state.settings.oddsFormat));
     form.winProb.value = b.winProb ? (b.winProb * 100).toFixed(1).replace(/\.0$/, '') : '';
     form.stake.value = Number(b.stake).toFixed(2);
     $('#f-stake-mode').value = 'dollars';
@@ -971,7 +1001,7 @@
     ev.preventDefault();
     const odds = oddsFromForm();
     if (!Number.isFinite(odds)) {
-      toast(state.settings.oddsFormat === 'decimal' ? 'Enter decimal odds above 1.00, like 1.91.' : 'Enter American odds like -110 or +150.');
+      toast(state.settings.oddsFormat === 'decimal' ? 'Enter decimal odds above 1.00, like 1.91.' : 'Tap − or +, then enter the odds, like 110 or 150.', 'error');
       form.odds.focus();
       return;
     }
@@ -1156,6 +1186,17 @@
     }));
     form.addEventListener('submit', submitBet);
     $('#cancel-edit').addEventListener('click', resetForm);
+    $$('#odds-sign button').forEach((b) => b.addEventListener('click', () => {
+      setOddsSign(b.dataset.sign);
+      updateFormHints();
+    }));
+    // A typed or pasted sign moves onto the buttons, so the field only holds the number.
+    form.odds.addEventListener('input', () => {
+      if (/^[+\-−–]/.test(form.odds.value) && state.settings.oddsFormat !== 'decimal') {
+        setOddsValue(form.odds.value);
+        updateFormHints();
+      }
+    });
     $('#fab-add').addEventListener('click', () => {
       showTab('bets');
       if (!form.id.value) resetForm();

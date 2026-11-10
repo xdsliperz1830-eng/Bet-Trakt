@@ -140,7 +140,13 @@
             </div>
             <div class="field">
               <label for="f-odds" id="odds-label">Odds (American)</label>
-              <input type="text" id="f-odds" name="odds" inputmode="decimal" placeholder="-110" required>
+              <div class="odds-group">
+                <div class="segmented odds-sign" id="odds-sign" role="group" aria-label="Minus or plus odds">
+                  <button type="button" data-sign="-" aria-pressed="true" aria-label="Minus odds (favorite)">−</button>
+                  <button type="button" data-sign="+" aria-pressed="false" aria-label="Plus odds (underdog)">+</button>
+                </div>
+                <input type="text" id="f-odds" name="odds" inputmode="decimal" placeholder="110" required>
+              </div>
               <span class="hint" id="odds-hint">&nbsp;</span>
             </div>
             <div class="field">
