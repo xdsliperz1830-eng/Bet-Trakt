@@ -49,6 +49,14 @@ On first launch you land on **Settings**. Enter your starting bankroll and pick 
 | Win rate | wins ÷ (wins + losses); pushes excluded |
 | Units won | each bet's profit converted to units at the unit size *when the bet was placed* |
 
+## Publishing as a claude.ai artifact
+
+```bash
+npm run build:artifact   # writes dist/bet-trakt.html
+```
+
+The build inlines the CSS and JS into one page. When it runs as an artifact with the `db`, `user` and `downloads` capabilities, bets are saved to the viewer's private space in their Claude account and exports go through the artifact's save prompt. Anywhere else it falls back to browser storage and normal downloads.
+
 ## Project layout
 
 ```
@@ -57,6 +65,7 @@ styles.css        Styles (light and dark)
 js/calc.js        Pure betting math: odds, P&L, stats, unit sizing, Kelly, CSV
 js/app.js         UI, storage, charts
 tests/            Unit tests for js/calc.js
+scripts/          build-artifact.js bundles the app into one HTML file
 ```
 
 ## Tests

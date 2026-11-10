@@ -23,6 +23,10 @@
   <main>
     <!-- ================= Dashboard ================= -->
     <section class="view" id="view-dashboard" role="tabpanel">
+      <div class="demo-banner" hidden>
+        <p><strong>You're looking at <span data-sample-count>42</span> sample bets.</strong> They show how the tracker works. Remove them when you're ready to track your own.</p>
+        <button type="button" class="btn" data-remove-samples>Remove samples</button>
+      </div>
       <div class="stats" id="stats"></div>
 
       <div class="grid grid-2">
@@ -69,6 +73,10 @@
 
     <!-- ================= Bets ================= -->
     <section class="view" id="view-bets" role="tabpanel" hidden>
+      <div class="demo-banner" hidden>
+        <p><strong>You're looking at <span data-sample-count>42</span> sample bets.</strong> They show how the tracker works. Remove them when you're ready to track your own.</p>
+        <button type="button" class="btn" data-remove-samples>Remove samples</button>
+      </div>
       <div class="card">
         <h2 id="form-title">Add a bet</h2>
         <p class="sub">Enter the odds, then set your confidence or your own win probability to get a recommended stake.</p>
@@ -255,7 +263,7 @@
         <div class="stack">
           <div class="card">
             <h2>Your data</h2>
-            <p class="sub">Everything is stored in this browser only. Back up regularly, and use the backup file to move to another device.</p>
+            <p class="sub" id="storage-note">Your bets are stored in this browser only. Download a backup regularly, and use it to move your bets to another device.</p>
             <div class="actions" style="margin-top:0">
               <button type="button" class="btn" id="export-csv">Export CSV</button>
               <button type="button" class="btn" id="export-json">Download backup</button>
@@ -279,6 +287,16 @@
   </main>
 
   <div class="toast" id="toast" role="status" hidden></div>
+
+  <div class="modal-backdrop" id="confirm" hidden>
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-msg">
+      <p id="confirm-msg"></p>
+      <div class="actions">
+        <button type="button" class="btn" id="confirm-no">Cancel</button>
+        <button type="button" class="btn primary" id="confirm-yes">OK</button>
+      </div>
+    </div>
+  </div>
 
   <script src="js/calc.js"></script>
   <script src="js/app.js"></script>

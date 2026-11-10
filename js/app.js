@@ -15,7 +15,9 @@
     configured: false,
   };
 
+  let firstVisit = false;
   let state = load();
+  if (firstVisit) state.bets = sampleBets(); // first visit: show a working example
   let breakdownKey = 'sport';
   let confidence = 2;
   let lastReco = null;
@@ -33,6 +35,7 @@
         };
       }
     } catch (e) { /* storage unavailable or corrupt: start fresh */ }
+    firstVisit = true;
     return { settings: Object.assign({}, DEFAULT_SETTINGS), bets: [] };
   }
 
@@ -40,8 +43,155 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
-      toast('Could not save. Your browser is blocking storage, so download a backup.');
+      if (!cloud.ready) toast('Could not save. Your browser is blocking storage, so download a backup.');
     }
+    syncCloud();
+  }
+
+  /*
+   * Cloud sync (only when the page runs as a claude.ai artifact with the db
+   * capability). Bets live under the viewer's private data/users/<id>/ path:
+   *   data/users/<id>/settings              one document
+   *   data/users/<id>/ledger/bets/<betId>   one document per bet
+   * Writes are diffed against what was last synced and sent one at a time.
+   */
+  const cloud = { ready: false, db: null, uid: null, synced: { settings: null, bets: new Map() }, queue: Promise.resolve(), failed: false };
+
+  function cloudPaths() {
+    const base = 'data/users/' + cloud.uid;
+    return { settings: base + '/settings', bets: base + '/ledger/bets' };
+  }
+
+  function plain(obj) {
+    const out = {};
+    for (const k in obj) if (obj[k] !== undefined) out[k] = obj[k];
+    return out;
+  }
+
+  function syncCloud() {
+    if (!cloud.ready) return;
+    const paths = cloudPaths();
+    const ops = [];
+    const settingsJson = JSON.stringify(state.settings);
+    if (settingsJson !== cloud.synced.settings) {
+      cloud.synced.settings = settingsJson;
+      ops.push(() => cloud.db.doc(paths.settings).set(plain(state.settings)));
+    }
+    const seen = new Set();
+    for (const b of state.bets) {
+      seen.add(b.id);
+      const j = JSON.stringify(b);
+      if (cloud.synced.bets.get(b.id) !== j) {
+        cloud.synced.bets.set(b.id, j);
+        const data = plain(b);
+        ops.push(() => cloud.db.collection(paths.bets).doc(b.id).set(data));
+      }
+    }
+    for (const id of Array.from(cloud.synced.bets.keys())) {
+      if (!seen.has(id)) {
+        cloud.synced.bets.delete(id);
+        ops.push(() => cloud.db.collection(paths.bets).doc(id).delete());
+      }
+    }
+    ops.forEach((op) => {
+      cloud.queue = cloud.queue.then(() => runWithRetry(op)).catch((err) => {
+        if (!cloud.failed) {
+          cloud.failed = true;
+          toast(err && err.code === 'quota_exceeded'
+            ? 'Your cloud storage is full. Delete some bets or download a backup.'
+            : 'Could not save to your account. Your bets are kept in this browser for now.');
+          renderStorageNote();
+        }
+      });
+    });
+  }
+
+  function runWithRetry(op) {
+    return op().catch((err) => {
+      if (err && err.code === 'unavailable') {
+        return new Promise((r) => setTimeout(r, 400 + Math.random() * 600)).then(op);
+      }
+      throw err;
+    });
+  }
+
+  async function connectCloud() {
+    const api = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
+    if (!api) return;
+    try {
+      const [db, user] = await Promise.all([api.use('db'), api.use('user')]);
+      if (!db || !user) return;
+      const uid = await user.id();
+      if (!uid) return;
+      cloud.db = db;
+      cloud.uid = uid;
+      const paths = cloudPaths();
+      const [settingsSnap, betsSnap] = await Promise.all([
+        db.doc(paths.settings).get(),
+        db.collection(paths.bets).get(),
+      ]);
+      const cloudBets = betsSnap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      if (settingsSnap.exists || cloudBets.length) {
+        // The account already has data: it wins over this browser's copy.
+        state = {
+          settings: Object.assign({}, DEFAULT_SETTINGS, settingsSnap.exists ? settingsSnap.data() : {}),
+          bets: cloudBets,
+        };
+        cloud.synced.settings = settingsSnap.exists ? JSON.stringify(state.settings) : null;
+        cloudBets.forEach((b) => cloud.synced.bets.set(b.id, JSON.stringify(b)));
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* cache only */ }
+        fillSettings();
+        resetForm();
+        renderAll();
+      }
+      cloud.ready = true;
+      syncCloud(); // first visit on this account: upload what this browser has
+      renderStorageNote();
+    } catch (e) {
+      cloud.ready = false;
+      renderStorageNote();
+    }
+  }
+
+  function renderStorageNote() {
+    const el = $('#storage-note');
+    if (!el) return;
+    el.textContent = cloud.ready && !cloud.failed
+      ? 'Your bets are saved to your Claude account in a private space only you can see, so they follow you to other devices.'
+      : 'Your bets are stored in this browser only. Download a backup regularly, and use it to move your bets to another device.';
+  }
+
+  /* ---------------- In-page confirmation ---------------- */
+
+  function askConfirm(message, confirmLabel, danger) {
+    return new Promise((resolve) => {
+      const box = $('#confirm');
+      $('#confirm-msg').textContent = message;
+      const yes = $('#confirm-yes');
+      const no = $('#confirm-no');
+      yes.textContent = confirmLabel || 'OK';
+      yes.classList.toggle('danger-fill', !!danger);
+      const prevFocus = document.activeElement;
+      box.hidden = false;
+      no.focus();
+      function done(v) {
+        box.hidden = true;
+        yes.removeEventListener('click', onYes);
+        no.removeEventListener('click', onNo);
+        box.removeEventListener('keydown', onKey);
+        box.removeEventListener('click', onBackdrop);
+        if (prevFocus && prevFocus.focus) prevFocus.focus();
+        resolve(v);
+      }
+      const onYes = () => done(true);
+      const onNo = () => done(false);
+      const onKey = (e) => { if (e.key === 'Escape') done(false); };
+      const onBackdrop = (e) => { if (e.target === box) done(false); };
+      yes.addEventListener('click', onYes);
+      no.addEventListener('click', onNo);
+      box.addEventListener('keydown', onKey);
+      box.addEventListener('click', onBackdrop);
+    });
   }
 
   /* ---------------- Helpers ---------------- */
@@ -669,7 +819,19 @@
 
   /* ---------------- Import / export ---------------- */
 
-  function download(name, text, type) {
+  async function download(name, text, type) {
+    const api = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
+    const downloads = api ? await api.use('downloads').catch(() => null) : null;
+    if (downloads) {
+      try {
+        await downloads.save({ filename: name, data: text });
+        toast('Saved ' + name + '.');
+      } catch (err) {
+        if (err && err.code === 'declined') return;
+        toast(err && err.code === 'rate_limited' ? 'A save is already waiting for you. Finish that one first.' : 'Saving files is not available here.');
+      }
+      return;
+    }
     const blob = new Blob([text], { type });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -687,13 +849,15 @@
         if (!data || !Array.isArray(data.bets)) throw new Error('bad file');
         const bets = data.bets.filter((b) => b && Number(b.odds) > 1 && Number(b.stake) >= 0 && C.STATUSES.includes(b.status))
           .map((b) => Object.assign({ id: uid(), createdAt: Date.now() }, b));
-        if (!confirm('Replace your ' + state.bets.length + ' current bets with ' + bets.length + ' bets from this backup?')) return;
-        state = { settings: Object.assign({}, DEFAULT_SETTINGS, data.settings), bets };
-        save();
-        fillSettings();
-        resetForm();
-        renderAll();
-        toast('Restored ' + bets.length + ' bets.');
+        askConfirm('Replace your ' + state.bets.length + ' current bets with the ' + bets.length + ' bets in this backup?', 'Replace bets', true).then((ok) => {
+          if (!ok) return;
+          state = { settings: Object.assign({}, DEFAULT_SETTINGS, data.settings), bets };
+          save();
+          fillSettings();
+          resetForm();
+          renderAll();
+          toast('Restored ' + bets.length + ' bets.');
+        });
       } catch (e) {
         toast('That file is not a Bet-Trakt backup.');
       }
@@ -735,7 +899,7 @@
       out.push({
         id: uid(), createdAt: Date.now() + i, date: d.toISOString().slice(0, 10),
         sport: p[0], type: p[1], event: p[2], selection: p[3], book: books[Math.floor(rnd() * books.length)],
-        odds, stake: C.round(u * unit, 2), units: u, status, cashout: null, confidence: conf, winProb: null, notes: 'Sample bet',
+        odds, stake: C.round(u * unit, 2), units: u, status, cashout: null, confidence: conf, winProb: null, notes: 'Sample bet', sample: true,
       });
     }
     return out;
@@ -743,7 +907,17 @@
 
   /* ---------------- Wire up ---------------- */
 
+  function renderDemoBanner() {
+    const n = state.bets.filter((b) => b.sample).length;
+    $$('.demo-banner').forEach((el) => {
+      el.hidden = n === 0;
+      const c = el.querySelector('[data-sample-count]');
+      if (c) c.textContent = n;
+    });
+  }
+
   function renderAll() {
+    renderDemoBanner();
     renderHeader();
     renderStats();
     renderUnitPanel();
@@ -783,10 +957,15 @@
       const act = btn.dataset.act;
       if (act === 'edit') return startEdit(bet.id);
       if (act === 'delete') {
-        if (!confirm('Delete "' + (bet.selection || bet.event) + '"?')) return;
-        state.bets = state.bets.filter((b) => b !== bet);
-        if (form.id.value === bet.id) resetForm();
-        toast('Bet deleted.');
+        askConfirm('Delete "' + (bet.selection || bet.event) + '"? This cannot be undone.', 'Delete bet', true).then((ok) => {
+          if (!ok) return;
+          state.bets = state.bets.filter((b) => b !== bet);
+          if (form.id.value === bet.id) resetForm();
+          save();
+          renderAll();
+          toast('Bet deleted.');
+        });
+        return;
       } else {
         bet.status = act;
         toast('Marked ' + act + ': ' + money(C.betProfit(bet), true) + '.');
@@ -815,22 +994,32 @@
       if (e.target.files[0]) importBackup(e.target.files[0]);
       e.target.value = '';
     });
-    $('#load-sample').addEventListener('click', () => {
-      if (state.bets.length && !confirm('Add 42 sample bets to your existing ' + state.bets.length + ' bets?')) return;
+    $('#load-sample').addEventListener('click', async () => {
+      if (state.bets.some((b) => b.sample)) return toast('Sample bets are already loaded.');
+      if (state.bets.length && !(await askConfirm('Add 42 sample bets alongside your ' + state.bets.length + ' bets? You can remove them in one click later.', 'Add samples'))) return;
       state.bets = state.bets.concat(sampleBets());
       save();
       renderAll();
-      toast('Loaded 42 sample bets. Delete them any time from Settings.');
+      toast('Loaded 42 sample bets.');
     });
-    $('#clear-all').addEventListener('click', () => {
+    $('#clear-all').addEventListener('click', async () => {
       if (!state.bets.length) return toast('No bets to delete.');
-      if (!confirm('Delete all ' + state.bets.length + ' bets? Download a backup first if you might want them back.')) return;
+      if (!(await askConfirm('Delete all ' + state.bets.length + ' bets? Download a backup first if you might want them back.', 'Delete all bets', true))) return;
       state.bets = [];
       save();
       resetForm();
       renderAll();
       toast('All bets deleted.');
     });
+    $$('[data-remove-samples]').forEach((b) => b.addEventListener('click', () => {
+      const n = state.bets.filter((x) => x.sample).length;
+      state.bets = state.bets.filter((x) => !x.sample);
+      save();
+      resetForm();
+      renderAll();
+      toast('Removed ' + n + ' sample bets.');
+      if (!state.settings.configured) showTab('settings');
+    }));
 
     let resizeTimer;
     window.addEventListener('resize', () => {
@@ -841,10 +1030,12 @@
     fillSettings();
     resetForm();
     renderAll();
+    renderStorageNote();
     let tab = 'dashboard';
     try { tab = sessionStorage.getItem('bettrakt:tab') || tab; } catch (e) { /* ignore */ }
     if (!state.settings.configured && !state.bets.length) tab = 'settings';
     showTab(tab);
+    connectCloud();
   }
 
   init();
