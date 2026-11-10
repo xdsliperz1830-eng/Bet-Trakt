@@ -3,7 +3,7 @@
  * Network first (so updates show up straight away), cached copy when offline.
  * Bets are not stored here; they live in the page's localStorage.
  */
-const CACHE = 'bettrakt-v7';
+const CACHE = 'bettrakt-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -34,7 +34,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   event.respondWith(
-    fetch(req)
+    // cache: 'no-cache' revalidates with the server every time, so a new version shows up straight away
+    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

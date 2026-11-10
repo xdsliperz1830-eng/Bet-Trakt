@@ -101,7 +101,7 @@ styles.css        Styles (light and dark)
 js/calc.js        Pure betting math: odds, P&L, stats, unit sizing, Kelly, CSV
 js/parse.js       Quick add: reads typed bets and bet-slip text
 js/app.js         UI, storage, charts
-sw.js             Service worker (offline support). Bump CACHE when you change files.
+sw.js             Service worker (offline support). Bump CACHE here and APP_VERSION in js/app.js with each release.
 manifest.webmanifest, icons/   Home-screen app name and icons
 tests/            Unit tests for js/calc.js and js/parse.js
 scripts/          build-artifact.js bundles the app into one HTML file

@@ -690,3 +690,12 @@ html[data-device="phone"] .draft input, html[data-device="phone"] .draft select 
 .paste-zone:empty::before { content: attr(data-placeholder); pointer-events: none; }
 .paste-zone:focus { box-shadow: 0 0 0 4px var(--accent-soft); }
 .paste-zone img { max-width: 100%; max-height: 120px; }
+
+/* ---------- "New version ready" bar ---------- */
+.update-bar {
+  position: fixed; z-index: 55; left: 50%; transform: translateX(-50%);
+  top: calc(12px + env(safe-area-inset-top, 0px)); max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 14px;
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: var(--shadow-lift); font-size: 14px; font-weight: 600; animation: pop-in 240ms var(--ease);
+}

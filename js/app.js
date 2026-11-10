@@ -5,6 +5,8 @@
   const STORAGE_KEY = 'bettrakt:v1';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const BOOKS = ['FanDuel', 'DraftKings', 'Sleeper', 'Chalkboard', 'Fliff'];
+  // Shown in Settings -> This device. Bump with every release (and CACHE in sw.js).
+  const APP_VERSION = '1.8';
 
   const DEFAULT_SETTINGS = {
     startingBankroll: 1000,
@@ -365,7 +367,7 @@
     const where = env.display === 'app'
       ? (phone ? 'opened from your home screen' : 'running as an installed app')
       : (isSite ? 'open in a browser tab' : 'open inside Claude');
-    let text = (phone ? 'Phone' : 'Computer') + ', ' + where + '. ';
+    let text = 'Version ' + APP_VERSION + '. ' + (phone ? 'Phone' : 'Computer') + ', ' + where + '. ';
     if (env.display === 'app') {
       text += 'You are all set.';
       if (env.ios) text += ' Bets saved here are kept separately from Safari, so keep using the home-screen app.';
@@ -421,7 +423,21 @@
     if (!isSite || !('serviceWorker' in navigator)) return;
     const secure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     if (!secure) return;
-    navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
+    // A new version takes over as soon as it is downloaded (sw.js calls skipWaiting/clients.claim).
+    // When that happens, reload into it, unless the person is midway through entering a bet.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;
+      const busy = drafts.length || form.id.value || form.odds.value.trim() || form.stake.value || $('#qa-text').value.trim();
+      if (busy) { $('#update-bar').hidden = false; return; }
+      reloading = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      // Home-screen apps resume rather than reload, so look for updates whenever the app comes back
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => { /* offline support is optional */ });
     // Ask the browser not to clear saved bets under storage pressure (granted silently for installed apps).
     if (env.display === 'app' && navigator.storage && navigator.storage.persist) {
       navigator.storage.persist().catch(() => {});
@@ -1743,6 +1759,7 @@
       setTimeout(() => $('#qa-text').focus({ preventScroll: true }), 350);
     });
     wireQuickAdd();
+    $('#update-reload').addEventListener('click', () => location.reload());
     $('#reco').addEventListener('click', (e) => { if (e.target.closest('[data-use-reco]')) useReco(); });
 
     const onBetAction = (e) => {
