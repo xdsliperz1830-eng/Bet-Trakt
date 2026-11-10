@@ -16,12 +16,15 @@
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="app-header">
     <div class="bar">
-      <div class="brand">Bet<span>-</span>Trakt</div>
+      <div class="brand"><svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="bm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2f6bff"/><stop offset="1" stop-color="#12b76a"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#bm)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4.5" fill="#fff"/></svg><div>Bet<span>-</span>Trakt</div></div>
       <nav class="tabs" role="tablist" aria-label="Sections">
         <button class="tab" role="tab" data-tab="dashboard" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Dashboard</span></button>
         <button class="tab" role="tab" data-tab="bets" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16l-3.5-2-3.5 2-3.5-2L5 20zM9 9h6M9 13h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg><span>Bets</span></button>
@@ -50,7 +53,7 @@
         <p><strong>Your tracker still has <span data-sample-count>42</span> sample bets.</strong> Remove them so your numbers only include your own bets.</p>
         <button type="button" class="btn" data-remove-samples>Remove samples</button>
       </div>
-      <div class="stats" id="stats"></div>
+      <div class="overview" id="stats"></div>
 
       <div class="grid grid-2">
         <div class="card">
@@ -315,6 +318,10 @@
       </div>
     </section>
   </main>
+
+  <button type="button" class="fab" id="fab-add" aria-label="Add a bet">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+  </button>
 
   <div class="toast" id="toast" role="status" hidden></div>
 

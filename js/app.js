@@ -240,9 +240,12 @@
   }
 
   let toastTimer;
-  function toast(msg) {
+  function toast(msg, kind) {
     const t = $('#toast');
     t.textContent = msg;
+    t.className = 'toast' + (kind ? ' ' + kind : '');
+    t.hidden = true;
+    void t.offsetWidth; // restart the entrance animation
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
@@ -250,6 +253,66 @@
 
   function currentBankroll() { return C.bankrollSeries(state.settings.startingBankroll, state.bets).current; }
   function currentUnit() { return C.unitSize(state.settings, currentBankroll()); }
+
+  /* ---------------- Motion ---------------- */
+
+  const reduceMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const lastShown = new Map(); // data-key -> last number shown, so counters animate from there
+  const FORMATTERS = {
+    money: (v) => money(v),
+    moneySigned: (v) => money(v, true),
+    unitsSigned: (v) => units(v, true),
+    pctSigned: (v) => pct(v, true),
+    pct: (v) => pct(v, false),
+  };
+
+  /** Count numbers up/down to their new value: <span data-count="123.4" data-fmt="money" data-key="x">. */
+  function animateNumbers(root) {
+    $$('[data-count]', root).forEach((el) => {
+      const to = Number(el.dataset.count);
+      const fmt = FORMATTERS[el.dataset.fmt] || FORMATTERS.money;
+      const key = el.dataset.key;
+      const from = lastShown.has(key) ? lastShown.get(key) : 0;
+      lastShown.set(key, to);
+      if (reduceMotion() || from === to || !Number.isFinite(to)) { el.textContent = fmt(to); return; }
+      const t0 = performance.now(), dur = 700;
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - k, 3);
+        el.textContent = fmt(from + (to - from) * e);
+        if (k < 1) requestAnimationFrame(step);
+      };
+      el.textContent = fmt(from);
+      requestAnimationFrame(step);
+    });
+  }
+
+  /** A little burst of confetti from a point on screen, for wins. */
+  function celebrate(x, y) {
+    if (reduceMotion()) return;
+    const colors = ['#12b76a', '#2f6bff', '#f5a524', '#34d399', '#5b8cff'];
+    for (let i = 0; i < 22; i++) {
+      const p = document.createElement('i');
+      p.className = 'burst';
+      const angle = (Math.PI * 2 * i) / 22 + Math.random() * 0.4;
+      const dist = 50 + Math.random() * 70;
+      p.style.left = x + 'px';
+      p.style.top = y + 'px';
+      p.style.background = colors[i % colors.length];
+      p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+      p.style.setProperty('--dy', Math.sin(angle) * dist - 20 + 'px');
+      p.style.setProperty('--rot', Math.round(Math.random() * 540 - 270) + 'deg');
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 900);
+    }
+  }
+
+  function celebrateFrom(el) {
+    const r = el.getBoundingClientRect();
+    celebrate(r.left + r.width / 2, r.top + r.height / 2);
+  }
+
+  let chartAnim = true; // animate charts when the data changes, not on every resize
 
   /* ---------------- Device & display mode ---------------- */
 
@@ -358,38 +421,69 @@
   /* ---------------- Tabs ---------------- */
 
   function showTab(name) {
+    const changed = document.documentElement.dataset.tab !== name;
     $$('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
     $$('.view').forEach((v) => { v.hidden = v.id !== 'view-' + name; });
+    document.documentElement.dataset.tab = name;
     try { sessionStorage.setItem('bettrakt:tab', name); } catch (e) { /* ignore */ }
-    if (name === 'dashboard') renderCharts();
+    if (changed) window.scrollTo(0, 0);
+    if (name === 'dashboard') { chartAnim = true; renderCharts(); }
   }
 
   /* ---------------- Dashboard ---------------- */
 
   function renderHeader() {
     const br = currentBankroll();
-    $('#header-bankroll').innerHTML = 'Bankroll<strong>' + money(br) + '</strong>1u = ' + money(currentUnit());
+    $('#header-bankroll').innerHTML = 'Bankroll<strong data-count="' + br + '" data-fmt="money" data-key="hdr-br">' + money(br) + '</strong>1u = ' + money(currentUnit());
+    animateNumbers($('#header-bankroll'));
   }
 
   function renderStats() {
     const s = C.summarize(state.bets);
     const series = C.bankrollSeries(state.settings.startingBankroll, state.bets);
     const start = Number(state.settings.startingBankroll) || 0;
-    const streak = s.currentStreak
-      ? (s.currentStreak.type === 'won' ? 'W' : 'L') + s.currentStreak.length + ' current streak'
-      : 'No streak yet';
-    const tiles = [
-      { label: 'Profit / loss', value: money(s.profit, true), cls: tone(s.profit), meta: 'on ' + money(s.staked) + ' staked' },
-      { label: 'Units won', value: units(s.units, true), cls: tone(s.units), meta: s.graded + ' graded bet' + (s.graded === 1 ? '' : 's') },
-      { label: 'ROI', value: pct(s.roi, true), cls: tone(s.roi), meta: 'profit ÷ amount staked' },
-      { label: 'Win rate', value: s.wins + s.losses ? pct(s.winRate, false) : '—', meta: s.wins + '-' + s.losses + (s.pushes ? '-' + s.pushes : '') + ' · ' + streak },
-      { label: 'Bankroll', value: money(series.current), cls: '', meta: (start ? pct((series.current - start) / start, true) + ' since start' : 'Set a bankroll') + ' · max drawdown ' + pct(series.maxDrawdownPct, false, 0) },
-      { label: 'Pending', value: money(s.pendingStake), meta: s.pending + ' open bet' + (s.pending === 1 ? '' : 's') },
-    ];
-    $('#stats').innerHTML = tiles.map((t) =>
-      '<div class="card stat"><div class="label">' + t.label + '</div><div class="value ' + (t.cls || '') + '">' + t.value +
-      '</div><div class="meta">' + t.meta + '</div></div>'
-    ).join('');
+    const change = start ? (series.current - start) / start : 0;
+    const streak = s.currentStreak ? (s.currentStreak.type === 'won' ? 'W' : 'L') + s.currentStreak.length + ' streak' : 'No streak yet';
+    const num = (v, fmt, key, cls) => '<span class="' + (cls || '') + '" data-count="' + v + '" data-fmt="' + fmt + '" data-key="' + key + '">' + FORMATTERS[fmt](v) + '</span>';
+    const arrowUp = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const arrowDown = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const decided = s.wins + s.losses;
+    const breakEven = s.graded && Number.isFinite(s.avgOdds) ? 1 / s.avgOdds : null;
+
+    const hero =
+      '<section class="hero" aria-label="Bankroll">' +
+        '<div><div class="hero-label">Bankroll</div>' +
+        '<div class="hero-value">' + num(series.current, 'money', 'hero-br') + '</div></div>' +
+        '<div class="hero-row">' +
+          '<span class="hero-chip">' + (series.current >= start ? arrowUp : arrowDown) + num(series.current - start, 'moneySigned', 'hero-chg') +
+            (start ? ' (' + pct(change, true) + ')' : '') + '</span>' +
+          '<span class="hero-chip">1u = ' + money(currentUnit()) + '</span>' +
+          '<span class="hero-chip">Max drawdown ' + pct(series.maxDrawdownPct, false, 0) + '</span>' +
+        '</div>' +
+      '</section>';
+
+    const tile = (o) =>
+      '<div class="card stat ' + (o.tone || '') + '">' +
+        '<div class="stat-head"><span class="stat-icon" aria-hidden="true">' + o.icon + '</span><span class="label">' + o.label + '</span></div>' +
+        '<div class="value ' + (o.cls || '') + '">' + o.value + '</div>' +
+        (o.extra || '') +
+        '<div class="meta">' + o.meta + '</div>' +
+      '</div>';
+    const toneOf = (v) => (v > 0.004 ? 'tone-pos' : v < -0.004 ? 'tone-neg' : '');
+
+    $('#stats').innerHTML = hero +
+      tile({ label: 'Profit / loss', icon: '<svg viewBox="0 0 24 24"><path d="M4 17l6-6 4 4 6-7M15 8h5v5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>', tone: toneOf(s.profit), cls: tone(s.profit),
+        value: num(s.profit, 'moneySigned', 'pl'), meta: num(s.units, 'unitsSigned', 'units') + ' · ' + money(s.staked) + ' staked' }) +
+      tile({ label: 'ROI', icon: '<svg viewBox="0 0 24 24"><path d="M7 17L17 7M8 8.5a1.5 1.5 0 1 0 0-.01M16 15.5a1.5 1.5 0 1 0 0-.01" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>', tone: toneOf(s.roi), cls: tone(s.roi),
+        value: num(s.roi, 'pctSigned', 'roi'), meta: s.graded + ' graded bet' + (s.graded === 1 ? '' : 's') }) +
+      tile({ label: 'Win rate', icon: '<svg viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', tone: 'tone-gold',
+        value: decided ? num(s.winRate, 'pct', 'wr') : '—',
+        extra: '<div class="meter" title="Win rate' + (breakEven ? ' vs break-even ' + pct(breakEven, false) : '') + '"><i style="width:' + (decided ? (s.winRate * 100).toFixed(1) : 0) + '%"></i>' +
+          (breakEven ? '<b style="left:' + (breakEven * 100).toFixed(1) + '%"></b>' : '') + '</div>',
+        meta: s.wins + '-' + s.losses + (s.pushes ? '-' + s.pushes : '') + ' · ' + streak }) +
+      tile({ label: 'Pending', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 8v4l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+        value: num(s.pendingStake, 'money', 'pend'), meta: s.pending + ' open bet' + (s.pending === 1 ? '' : 's') });
+    animateNumbers($('#stats'));
   }
 
   function renderUnitPanel() {
@@ -398,7 +492,7 @@
     const unit = currentUnit();
     const rows = Object.keys(C.CONFIDENCE_UNITS).map((k) => {
       const u = Math.min(C.CONFIDENCE_UNITS[k], Number(st.maxUnits) || 3);
-      return '<tr><td>' + k + ' ' + '★'.repeat(Number(k)) + '</td><td>' + units(u) + '</td><td>' + money(u * unit) + '</td></tr>';
+      return '<tr><td>' + k + ' <span class="stars">' + '★'.repeat(Number(k)) + '</span></td><td>' + units(u) + '</td><td>' + money(u * unit) + '</td></tr>';
     }).join('');
     $('#unit-panel').innerHTML =
       '<div class="unit-callout">' +
@@ -418,7 +512,7 @@
     }
     const labels = { good: 'Good', info: 'Tip', warning: 'Watch', serious: 'Action', critical: 'Risk' };
     $('#advice').innerHTML = msgs.map((m) =>
-      '<li><span class="badge ' + m.level + '">' + labels[m.level] + '</span><span>' + esc(m.text) + '</span></li>'
+      '<li class="' + m.level + '"><span class="badge ' + m.level + '">' + labels[m.level] + '</span><span>' + esc(m.text) + '</span></li>'
     ).join('');
   }
 
@@ -473,6 +567,14 @@
     const sy = (v) => m.t + ih - ((v - y.lo) / (y.hi - y.lo)) * ih;
 
     const root = svg('svg', { viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': 'Bankroll after each settled bet, from ' + money(start) + ' to ' + money(series.current) });
+    if (chartAnim) root.classList.add('animate');
+    const defs = svg('defs', {}, root);
+    const lg = svg('linearGradient', { id: 'line-grad', x1: '0', y1: '0', x2: '1', y2: '0' }, defs);
+    svg('stop', { offset: '0', style: 'stop-color: var(--accent)' }, lg);
+    svg('stop', { offset: '1', style: 'stop-color: var(--accent-2)' }, lg);
+    const ag = svg('linearGradient', { id: 'area-grad', x1: '0', y1: '0', x2: '0', y2: '1' }, defs);
+    svg('stop', { offset: '0', style: 'stop-color: var(--accent); stop-opacity: 0.32' }, ag);
+    svg('stop', { offset: '1', style: 'stop-color: var(--accent); stop-opacity: 0' }, ag);
     y.ticks.forEach((v) => {
       svg('line', { class: 'gridline', x1: m.l, x2: width - m.r, y1: sy(v), y2: sy(v) }, root);
       const t = svg('text', { class: 'tick', x: m.l - 8, y: sy(v) + 4, 'text-anchor': 'end' }, root);
@@ -490,16 +592,18 @@
 
     const d = pts.map((p, i) => (i ? 'L' : 'M') + sx(i).toFixed(1) + ' ' + sy(p.bankroll).toFixed(1)).join(' ');
     svg('path', { class: 'area', d: d + ' L' + sx(n) + ' ' + (m.t + ih) + ' L' + sx(0) + ' ' + (m.t + ih) + ' Z' }, root);
-    svg('path', { class: 'line', d: d }, root);
+    const linePath = svg('path', { class: 'line', d: d }, root);
 
     // End-point direct label
     const last = pts[n];
-    svg('circle', { class: 'dot', cx: sx(n), cy: sy(last.bankroll), r: 4 }, root);
+    svg('circle', { class: 'dot dot-end', cx: sx(n), cy: sy(last.bankroll), r: 5 }, root);
 
     const cross = svg('line', { class: 'crosshair', y1: m.t, y2: m.t + ih, visibility: 'hidden' }, root);
     const hoverDot = svg('circle', { class: 'dot', r: 5, visibility: 'hidden' }, root);
     const overlay = svg('rect', { x: m.l, y: 0, width: iw, height: height, fill: 'transparent' }, root);
     host.appendChild(root);
+
+    try { linePath.style.setProperty('--len', Math.ceil(linePath.getTotalLength()) + 'px'); } catch (e) { root.classList.remove('animate'); }
 
     const tip = document.createElement('div');
     tip.className = 'tooltip';
@@ -579,6 +683,7 @@
     const zeroX = hasNeg && hasPos ? plotL + plotW / 2 : hasNeg ? plotR : plotL;
     const half = hasNeg && hasPos ? plotW / 2 : plotW;
     const root = svg('svg', { viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': 'Profit by ' + breakdownKey + '. Full figures in the table below.' });
+    if (chartAnim) root.classList.add('animate');
     svg('line', { class: 'baseline', x1: zeroX, x2: zeroX, y1: 0, y2: height }, root);
 
     const tip = document.createElement('div');
@@ -600,7 +705,7 @@
         const path = g.profit >= 0
           ? 'M' + x + ' ' + yTop + ' H' + (x + len - r) + ' Q' + (x + len) + ' ' + yTop + ' ' + (x + len) + ' ' + (yTop + r) + ' V' + (yTop + barH - r) + ' Q' + (x + len) + ' ' + (yTop + barH) + ' ' + (x + len - r) + ' ' + (yTop + barH) + ' H' + x + ' Z'
           : 'M' + (x + len) + ' ' + yTop + ' H' + (x + r) + ' Q' + x + ' ' + yTop + ' ' + x + ' ' + (yTop + r) + ' V' + (yTop + barH - r) + ' Q' + x + ' ' + (yTop + barH) + ' ' + (x + r) + ' ' + (yTop + barH) + ' H' + (x + len) + ' Z';
-        svg('path', { class: 'bar ' + (g.profit >= 0 ? 'bar-pos' : 'bar-neg'), d: path }, row);
+        svg('path', { class: 'bar ' + (g.profit >= 0 ? 'bar-pos' : 'bar-neg'), d: path, style: 'animation-delay:' + i * 60 + 'ms' }, row);
       }
       const vl = svg('text', {
         class: 'bar-label',
@@ -631,6 +736,7 @@
   function renderCharts() {
     renderBankrollChart();
     renderBreakdown();
+    chartAnim = false;
   }
 
   /* ---------------- Bets table ---------------- */
@@ -703,7 +809,7 @@
       table.innerHTML = '';
       cards.innerHTML = list.map((b) => {
         const meta = [fmtDate(b.date), b.sport, b.book, C.formatOdds(Number(b.odds), fmt)].filter(Boolean).map(esc).join(' · ');
-        return '<article class="bet-card">' +
+        return '<article class="bet-card ' + b.status + '">' +
           '<div class="bc-top"><div class="bc-event">' + esc(b.event) +
             (b.selection || b.type ? '<div class="sel">' + esc([b.selection, b.type].filter(Boolean).join(' · ')) + '</div>' : '') +
           '</div><div class="bc-pl ' + tone(C.betProfit(b)) + '">' + plText(b) + '</div></div>' +
@@ -904,7 +1010,8 @@
     if (existing) Object.assign(existing, bet);
     else state.bets.push(bet);
     save();
-    toast(existing ? 'Bet updated.' : 'Bet added: ' + units(bet.units) + ' on ' + (bet.selection || bet.event) + '.');
+    toast(existing ? 'Bet updated.' : 'Bet added: ' + units(bet.units) + ' on ' + (bet.selection || bet.event) + '.', bet.status === 'won' ? 'win' : '');
+    if (bet.status === 'won') celebrateFrom($('#save-btn'));
     resetForm();
     if (BOOKS.includes(bet.book)) form.book.value = bet.book; // most people log several bets at one book
     renderAll();
@@ -1023,6 +1130,7 @@
     renderAdvice();
     renderFilters();
     renderBetsTable();
+    chartAnim = true;
     renderCharts();
   }
 
@@ -1032,7 +1140,9 @@
     $$('#breakdown-key button').forEach((b) => b.addEventListener('click', () => {
       breakdownKey = b.dataset.key;
       $$('#breakdown-key button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      chartAnim = true;
       renderBreakdown();
+      chartAnim = false;
     }));
 
     $$('#confidence button').forEach((b) => b.addEventListener('click', () => {
@@ -1046,6 +1156,12 @@
     }));
     form.addEventListener('submit', submitBet);
     $('#cancel-edit').addEventListener('click', resetForm);
+    $('#fab-add').addEventListener('click', () => {
+      showTab('bets');
+      if (!form.id.value) resetForm();
+      form.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
+      setTimeout(() => form.event.focus({ preventScroll: true }), 350);
+    });
     $('#reco').addEventListener('click', (e) => { if (e.target.closest('[data-use-reco]')) useReco(); });
 
     const onBetAction = (e) => {
@@ -1067,7 +1183,8 @@
         return;
       } else {
         bet.status = act;
-        toast('Marked ' + act + ': ' + money(C.betProfit(bet), true) + '.');
+        toast('Marked ' + act + ': ' + money(C.betProfit(bet), true) + '.', act === 'won' ? 'win' : act === 'lost' ? 'loss' : '');
+        if (act === 'won') celebrateFrom(btn);
       }
       save();
       renderAll();
