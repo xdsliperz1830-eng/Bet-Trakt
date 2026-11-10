@@ -166,6 +166,29 @@
   }
 
   /**
+   * Profit per calendar day (by each bet's date), for the calendar view.
+   * Returns { 'YYYY-MM-DD': { profit, units, staked, bets, graded, pending, wins, losses } }.
+   */
+  function dailySummary(bets) {
+    const days = {};
+    for (const b of bets) {
+      const d = String(b.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      const day = days[d] || (days[d] = { profit: 0, units: 0, staked: 0, bets: 0, graded: 0, pending: 0, wins: 0, losses: 0 });
+      day.bets++;
+      if (b.status === 'pending') { day.pending++; continue; }
+      if (!isGraded(b)) continue;
+      day.graded++;
+      day.profit += betProfit(b);
+      day.units += betUnitsProfit(b);
+      day.staked += Number(b.stake) || 0;
+      if (b.status === 'won') day.wins++;
+      else if (b.status === 'lost') day.losses++;
+    }
+    return days;
+  }
+
+  /**
    * Bankroll after each graded bet, in date order, plus the running peak and
    * max drawdown. Point 0 is the starting bankroll.
    */
@@ -373,7 +396,7 @@
     STATUSES, RISK_PROFILES, CONFIDENCE_UNITS, CSV_FIELDS,
     americanToDecimal, decimalToAmerican, parseOdds, formatOdds, impliedProbability,
     betProfit, betUnitsProfit, betFormat, isSettled, isGraded, byDate,
-    summarize, groupSummary, bankrollSeries,
+    summarize, groupSummary, bankrollSeries, dailySummary,
     unitSize, kellyFraction, recommendStake, unitAdvice,
     toCSV, round,
   };

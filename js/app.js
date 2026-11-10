@@ -6,7 +6,7 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const BOOKS = ['FanDuel', 'DraftKings', 'Sleeper', 'Chalkboard', 'Fliff'];
   // Shown in Settings -> This device. Bump with every release (and CACHE in sw.js).
-  const APP_VERSION = '1.9';
+  const APP_VERSION = '2.0';
   // Where the Android app looks for newer builds (GitHub Releases of this repo)
   const RELEASES_API = 'https://api.github.com/repos/xdsliperz1830-eng/Bet-Trakt/releases/latest';
 
@@ -589,6 +589,177 @@
     $('#advice').innerHTML = msgs.map((m) =>
       '<li class="' + m.level + '"><span class="badge ' + m.level + '">' + labels[m.level] + '</span><span>' + esc(m.text) + '</span></li>'
     ).join('');
+  }
+
+  /* ---------------- Calendar: profit and loss by day ---------------- */
+
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  let calMonth = null;      // 'YYYY-MM'
+  let calDay = null;        // 'YYYY-MM-DD' selected
+  let calMode = 'money';    // or 'units'
+
+  function monthKey(iso) { return String(iso).slice(0, 7); }
+  function shiftMonth(key, by) {
+    const [y, m] = key.split('-').map(Number);
+    const d = new Date(y, m - 1 + by, 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  /** Short amount for a day square: $100, $35.9, $3.4, $1.2k; losses get a minus sign. */
+  function compactAmount(v, mode) {
+    const a = Math.abs(v);
+    const sign = v < -0.004 ? '−' : '';
+    if (mode === 'units') return sign + (a >= 10 ? a.toFixed(0) : a.toFixed(1).replace(/\.0$/, '')) + 'u';
+    let s;
+    if (a >= 1000) s = (a / 1000).toFixed(a >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+    else if (a >= 100) s = Math.round(a).toString();
+    else s = (Math.round(a * 10) / 10).toString();
+    return sign + '$' + s;
+  }
+
+  function renderCalendar(slide) {
+    const days = C.dailySummary(state.bets);
+    if (!calMonth) {
+      // Start on this month, or the month of the latest bet if this month has none
+      const now = monthKey(today());
+      const latest = Object.keys(days).sort().pop();
+      calMonth = Object.keys(days).some((d) => monthKey(d) === now) || !latest ? now : monthKey(latest);
+    }
+    const [y, m] = calMonth.split('-').map(Number);
+    const first = new Date(y, m - 1, 1);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const todayIso = today();
+    const inUnits = calMode === 'units';
+    const val = (d) => (inUnits ? d.units : d.profit);
+
+    // Month totals
+    let total = 0, wins = 0, losses = 0, up = 0, down = 0, maxAbs = 0;
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = days[calMonth + '-' + String(i).padStart(2, '0')];
+      if (!d || !d.graded) continue;
+      total += val(d);
+      wins += d.wins;
+      losses += d.losses;
+      if (val(d) > 0.004) up++; else if (val(d) < -0.004) down++;
+      maxAbs = Math.max(maxAbs, Math.abs(val(d)));
+    }
+    $('#cal-month').textContent = MONTH_NAMES[m - 1] + ' ' + y;
+    const totalEl = $('#cal-total');
+    totalEl.textContent = up + down ? (inUnits ? units(total, true) : money(total, true)) : '';
+    totalEl.className = 'cal-total ' + tone(total);
+    $('#cal-summary').textContent = up + down
+      ? wins + '-' + losses + ' record · ' + up + ' up day' + (up === 1 ? '' : 's') + ' · ' + down + ' down day' + (down === 1 ? '' : 's')
+      : 'No settled bets this month.';
+    $('#cal-next').disabled = calMonth >= monthKey(todayIso);
+
+    // Day squares
+    let html = '';
+    for (let i = 0; i < first.getDay(); i++) html += '<span class="cal-cell blank"></span>';
+    for (let i = 1; i <= daysInMonth; i++) {
+      const iso = calMonth + '-' + String(i).padStart(2, '0');
+      const d = days[iso];
+      const cls = ['cal-cell'];
+      let amt = '';
+      let label = fmtDate(iso);
+      if (d && d.graded) {
+        const v = val(d);
+        cls.push(v > 0.004 ? 'up' : v < -0.004 ? 'down' : 'even');
+        amt = '<span class="amt">' + compactAmount(v, calMode) + '</span>';
+        label += ': ' + (inUnits ? units(v, true) : money(v, true)) + ', ' + d.graded + ' settled bet' + (d.graded === 1 ? '' : 's');
+      }
+      if (d && d.pending) { cls.push('open'); label += ', ' + d.pending + ' open'; }
+      if (iso === todayIso) cls.push('today');
+      if (iso > todayIso) cls.push('future');
+      // Stronger tint for bigger days (relative to this month's biggest)
+      const mix = d && d.graded && maxAbs > 0 ? Math.round(16 + 34 * Math.min(1, Math.abs(val(d)) / maxAbs)) : 22;
+      html += '<button type="button" class="' + cls.join(' ') + '" role="gridcell" data-day="' + iso + '" style="--mix:' + mix + '%"' +
+        ' aria-selected="' + (iso === calDay) + '" aria-label="' + esc(label) + '"><span class="n">' + i + '</span>' + amt + '</button>';
+    }
+    const grid = $('#cal-days');
+    grid.innerHTML = html;
+    if (slide && !reduceMotion()) {
+      grid.classList.remove('slide-next', 'slide-prev');
+      void grid.offsetWidth;
+      grid.classList.add(slide === 1 ? 'slide-next' : 'slide-prev');
+    }
+    renderCalendarDay();
+  }
+
+  function renderCalendarDay() {
+    const host = $('#cal-day');
+    if (!calDay || monthKey(calDay) !== calMonth) {
+      host.innerHTML = '<div class="cal-hint">Tap a day to see its bets.</div>';
+      return;
+    }
+    const list = state.bets.filter((b) => b.date === calDay).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const d = C.dailySummary(list)[calDay];
+    const inUnits = calMode === 'units';
+    const dayTotal = d && d.graded ? (inUnits ? d.units : d.profit) : 0;
+    const fmt = state.settings.oddsFormat;
+    host.innerHTML =
+      '<div class="cal-day-head"><strong>' + esc(new Date(calDay + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })) +
+        ' · ' + list.length + ' bet' + (list.length === 1 ? '' : 's') + '</strong>' +
+        (d && d.graded ? '<span class="' + tone(dayTotal) + '">' + (inUnits ? units(dayTotal, true) : money(dayTotal, true)) + '</span>' : '') + '</div>' +
+      (list.length
+        ? '<div class="cal-bets">' + list.map((b) => {
+            const pl = C.betProfit(b);
+            const f = C.betFormat(b);
+            const plText = b.status === 'pending'
+              ? '<span style="color:var(--muted)">to win ' + money(Number(b.stake) * (Number(b.odds) - 1)) + '</span>'
+              : (inUnits ? units(C.betUnitsProfit(b), true) : money(pl, true));
+            return '<button type="button" class="cal-bet ' + b.status + '" data-edit="' + b.id + '" aria-label="Edit ' + esc(b.event) + '">' +
+              '<div class="cb-main"><div class="cb-title">' + esc(b.event) + '</div>' +
+                '<div class="cb-sub"><span class="status ' + b.status + '">' + (b.status === 'cashout' ? 'Cashed out' : b.status) + '</span>' +
+                  '<span>' + esc([f === 'Parlay' && b.legs ? b.legs + '-leg parlay' : f, b.book, money(Number(b.stake))].filter(Boolean).join(' · ')) + '</span></div></div>' +
+              '<div class="cb-pl ' + (b.status === 'pending' ? '' : tone(pl)) + '">' + plText + '<small>' + C.formatOdds(Number(b.odds), fmt) + '</small></div>' +
+            '</button>';
+          }).join('') + '</div>'
+        : '<div class="empty">No bets on this day. <button type="button" class="btn small" data-cal-add="' + calDay + '">Add one</button></div>');
+  }
+
+  function wireCalendar() {
+    const go = (by) => {
+      const next = shiftMonth(calMonth, by);
+      if (by > 0 && next > monthKey(today())) return;
+      calMonth = next;
+      renderCalendar(by);
+    };
+    $('#cal-prev').addEventListener('click', () => go(-1));
+    $('#cal-next').addEventListener('click', () => go(1));
+    $$('[data-cal-mode]').forEach((b) => b.addEventListener('click', () => {
+      calMode = b.dataset.calMode;
+      $$('[data-cal-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      renderCalendar();
+    }));
+    $('#cal-days').addEventListener('click', (e) => {
+      const cell = e.target.closest('[data-day]');
+      if (!cell) return;
+      calDay = calDay === cell.dataset.day ? null : cell.dataset.day;
+      $$('#cal-days [data-day]').forEach((c) => c.setAttribute('aria-selected', String(c.dataset.day === calDay)));
+      renderCalendarDay();
+    });
+    $('#cal-day').addEventListener('click', (e) => {
+      const edit = e.target.closest('[data-edit]');
+      if (edit) return startEdit(edit.dataset.edit);
+      const add = e.target.closest('[data-cal-add]');
+      if (add) {
+        showTab('bets');
+        resetForm();
+        form.date.value = add.dataset.calAdd;
+        form.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
+      }
+    });
+    // Swipe left/right on the month to change it
+    const grid = $('#cal-days');
+    let x0 = null, y0 = null;
+    grid.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+    grid.addEventListener('touchend', (e) => {
+      if (x0 === null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      const dy = e.changedTouches[0].clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+    }, { passive: true });
   }
 
   /* ---------------- Charts ---------------- */
@@ -1761,6 +1932,7 @@
     renderDemoBanner();
     renderHeader();
     renderStats();
+    renderCalendar();
     renderUnitPanel();
     renderAdvice();
     renderFilters();
@@ -1820,6 +1992,7 @@
       setTimeout(() => $('#qa-text').focus({ preventScroll: true }), 350);
     });
     wireQuickAdd();
+    wireCalendar();
     $('#update-reload').addEventListener('click', () => location.reload());
     $('#reco').addEventListener('click', (e) => { if (e.target.closest('[data-use-reco]')) useReco(); });
 

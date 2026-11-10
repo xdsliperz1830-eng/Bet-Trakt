@@ -55,6 +55,29 @@
       </div>
       <div class="overview" id="stats"></div>
 
+      <div class="card calendar-card" id="calendar-card">
+        <div class="cal-main">
+        <div class="cal-head">
+          <button type="button" class="cal-nav" id="cal-prev" aria-label="Previous month"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="cal-title">
+            <h2 id="cal-month">Month</h2>
+            <span class="cal-total" id="cal-total"></span>
+          </div>
+          <button type="button" class="cal-nav" id="cal-next" aria-label="Next month"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="segmented cal-mode" role="group" aria-label="Show dollars or units">
+            <button type="button" data-cal-mode="money" aria-pressed="true">$</button>
+            <button type="button" data-cal-mode="units" aria-pressed="false">u</button>
+          </div>
+        </div>
+        <p class="cal-summary" id="cal-summary"></p>
+        <div class="cal-grid cal-weekdays" aria-hidden="true">
+          <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+        </div>
+        <div class="cal-grid" id="cal-days" role="grid" aria-label="Profit and loss by day"></div>
+        </div>
+        <div class="cal-day" id="cal-day" aria-live="polite"></div>
+      </div>
+
       <div class="grid grid-2">
         <div class="card">
           <h2>Recommended units</h2>

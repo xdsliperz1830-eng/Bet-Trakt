@@ -9,7 +9,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // BUILD_NUMBER is the GitHub Actions run number, so each build counts up and installs as an update
         versionCode((System.getenv('BUILD_NUMBER') ?: '1').toInteger())
-        versionName "1.9"
+        versionName "2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

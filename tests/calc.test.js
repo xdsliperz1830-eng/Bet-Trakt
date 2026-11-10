@@ -138,3 +138,21 @@ test('betFormat: explicit format, or parlay inferred from older bets', () => {
   assert.equal(C.betFormat({ type: 'Spread', event: 'Chiefs vs Bills' }), 'Single');
   assert.equal(C.betFormat({}), 'Single');
 });
+
+test('dailySummary groups profit by day and counts open bets separately', () => {
+  const d = C.dailySummary([
+    { date: '2026-04-01', stake: 100, units: 1, odds: 2, status: 'won' },
+    { date: '2026-04-01', stake: 50, units: 0.5, odds: 2, status: 'lost' },
+    { date: '2026-04-02', stake: 20, odds: 2, status: 'pending' },
+    { date: '2026-04-02', stake: 20, odds: 2, status: 'void' },
+    { date: 'bad', stake: 20, odds: 2, status: 'won' },
+  ]);
+  assert.deepEqual(Object.keys(d).sort(), ['2026-04-01', '2026-04-02']);
+  assert.equal(d['2026-04-01'].profit, 50);
+  assert.equal(d['2026-04-01'].units, 0.5);
+  assert.equal(d['2026-04-01'].wins, 1);
+  assert.equal(d['2026-04-01'].losses, 1);
+  assert.equal(d['2026-04-02'].pending, 1);
+  assert.equal(d['2026-04-02'].graded, 0);
+  assert.equal(d['2026-04-02'].bets, 2);
+});
