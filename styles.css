@@ -679,3 +679,14 @@ html[data-device="phone"] input.switch { min-height: 0; }
 .draft-note { font-size: 12px; color: var(--muted); }
 html[data-device="phone"] .draft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 html[data-device="phone"] .draft input, html[data-device="phone"] .draft select { min-height: 44px; }
+
+/* Paste target for phones: a long-press here offers "Paste" for images, which a plain text box does not */
+.paste-zone {
+  margin-top: 10px; min-height: 88px; padding: 16px; border-radius: var(--radius-sm);
+  border: 2px dashed var(--accent); background: var(--accent-soft); color: var(--text-2);
+  display: grid; place-items: center; text-align: center; font-weight: 600; font-size: 15px;
+  -webkit-user-select: text; user-select: text; caret-color: transparent; outline: none; overflow: hidden;
+}
+.paste-zone:empty::before { content: attr(data-placeholder); pointer-events: none; }
+.paste-zone:focus { box-shadow: 0 0 0 4px var(--accent-soft); }
+.paste-zone img { max-width: 100%; max-height: 120px; }

@@ -1361,6 +1361,7 @@
   }
 
   async function readScreenshot(file) {
+    $('#qa-paste').hidden = true;
     if (!file || !/^image\//.test(file.type || '')) {
       toast('That file is not an image. Add a screenshot (PNG or JPG).', 'error');
       return;
@@ -1547,10 +1548,72 @@
         ? "Type your bets the way you'd say them, or add a screenshot of your bet slip. Claude reads them, and you check each one before it's saved."
         : "Type your bets the way you'd say them. Claude reads them, and you check each one before it's saved.";
       $('#qa-shot').hidden = !claudeImages;
+      $('#qa-paste-btn').hidden = !claudeImages;
     } else if (!isSite) {
       sub.textContent = "Type your bets the way you'd say them, and check each one before it's saved.";
       $('#qa-shot').hidden = true;
+      $('#qa-paste-btn').hidden = true;
     }
+  }
+
+  /** The first image in a paste or drop, from either .files or .items (browsers differ). */
+  function imageFromTransfer(dt) {
+    if (!dt) return null;
+    const f = Array.from(dt.files || []).find((x) => /^image\//.test(x.type));
+    if (f) return f;
+    const it = Array.from(dt.items || []).find((x) => x.kind === 'file' && /^image\//.test(x.type));
+    return it ? it.getAsFile() : null;
+  }
+
+  /** Turn an <img> the browser pasted inline into an image Blob (via canvas, which works for data: and blob: URLs). */
+  function blobFromImg(img) {
+    return new Promise((resolve) => {
+      const done = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          if (!c.width || !c.height) return resolve(null);
+          c.getContext('2d').drawImage(img, 0, 0);
+          c.toBlob((b) => resolve(b), 'image/png');
+        } catch (e) { resolve(null); }
+      };
+      if (img.complete && img.naturalWidth) done();
+      else { img.onload = done; img.onerror = () => resolve(null); }
+    });
+  }
+
+  function showPasteZone() {
+    const zone = $('#qa-paste');
+    zone.hidden = false;
+    zone.focus({ preventScroll: true });
+    zone.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'center' });
+    qaStatus(env.device === 'phone'
+      ? 'Long-press the blue box and tap Paste. (Copy the screenshot first: open it, tap Share, then Copy.)'
+      : 'Press ' + (/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl') + '+V to paste your screenshot.');
+  }
+
+  /** "Paste screenshot" button: read the clipboard directly where allowed, else show the paste box. */
+  async function pasteScreenshot() {
+    if (isSite && navigator.clipboard && navigator.clipboard.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const it of items) {
+          const type = it.types.find((t) => /^image\//.test(t));
+          if (type) { $('#qa-paste').hidden = true; return readScreenshot(await it.getType(type)); }
+        }
+        const txt = items.find((it) => it.types.includes('text/plain'));
+        if (txt) {
+          const text = (await (await txt.getType('text/plain')).text()).trim();
+          if (text) { $('#qa-text').value = text; return readQuickText(); }
+        }
+        toast('There is no screenshot on your clipboard. Copy one first, then tap Paste screenshot.', 'error');
+        return;
+      } catch (e) {
+        // Not allowed or not supported here: fall back to a normal paste
+      }
+    }
+    showPasteZone();
   }
 
   function wireQuickAdd() {
@@ -1563,12 +1626,26 @@
       e.target.value = '';
       if (f) readScreenshot(f);
     });
-    // Paste a screenshot straight into the box
-    $('#qa-text').addEventListener('paste', (e) => {
-      const item = Array.from((e.clipboardData && e.clipboardData.items) || []).find((it) => it.kind === 'file' && /^image\//.test(it.type));
-      if (!item) return;
+    // Paste a screenshot: into the box, the paste area, or anywhere on the Bets tab
+    document.addEventListener('paste', (e) => {
+      if ($('#view-bets').hidden) return;
+      const img = imageFromTransfer(e.clipboardData);
+      if (!img) return;
       e.preventDefault();
-      readScreenshot(item.getAsFile());
+      $('#qa-paste').hidden = true;
+      readScreenshot(img);
+    });
+    $('#qa-paste-btn').addEventListener('click', pasteScreenshot);
+    // Some phones paste the picture into the box as an <img> instead of handing it over
+    const zone = $('#qa-paste');
+    zone.addEventListener('input', async () => {
+      const img = zone.querySelector('img');
+      if (!img) { if (zone.textContent.trim()) { $('#qa-text').value = zone.textContent.trim(); zone.textContent = ''; zone.hidden = true; readQuickText(); } return; }
+      const blob = await blobFromImg(img);
+      zone.innerHTML = '';
+      zone.hidden = true;
+      if (blob) readScreenshot(blob);
+      else qaStatus('Could not use that pasted image. Try Add screenshot instead.');
     });
     // Or drop one onto the card
     const card = $('#quick-add');
