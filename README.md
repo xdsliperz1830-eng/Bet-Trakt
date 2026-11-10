@@ -42,10 +42,14 @@ On load (and whenever the window changes), the app sets two attributes on `<html
 
 ## Features
 
+**A short bet form**
+- Date, sportsbook (FanDuel, DraftKings, Sleeper, Chalkboard), **Single or Parlay** (with number of legs), odds, stake and result
+- Optional fields you can switch on in **Settings → Bet form**: confidence (on by default), sport, pick, your win probability and notes
+
 **Profit and loss**
 - Profit/loss in dollars and units, ROI, win rate (W-L-P), current and longest streaks
 - Bankroll chart over time with starting-bankroll reference line, peak and max drawdown
-- Breakdown by sport, bet type or sportsbook (chart and table)
+- Breakdown by format (single vs parlay), sportsbook or sport (chart and table)
 - Pending exposure, plus "to win" amounts on open bets
 - Handles wins, losses, pushes, voids and cash-outs
 

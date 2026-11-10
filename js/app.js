@@ -14,10 +14,19 @@
     maxUnits: 3,
     oddsFormat: 'american',
     configured: false,
+    // Optional bet-form fields. Off by default: keep the form to what most people track.
+    fields: { confidence: true, sport: false, selection: false, winProb: false, notes: false },
   };
 
+  function normalizeSettings(s) {
+    const out = Object.assign({}, DEFAULT_SETTINGS, s || {});
+    out.fields = Object.assign({}, DEFAULT_SETTINGS.fields, (s && s.fields) || {});
+    return out;
+  }
+
   let state = load();
-  let breakdownKey = 'sport';
+  let breakdownKey = 'format';
+  let betFormat = 'Single';
   let confidence = 2;
   let lastReco = null;
 
@@ -29,12 +38,12 @@
       if (raw) {
         const data = JSON.parse(raw);
         return {
-          settings: Object.assign({}, DEFAULT_SETTINGS, data.settings),
+          settings: normalizeSettings(data.settings),
           bets: Array.isArray(data.bets) ? data.bets : [],
         };
       }
     } catch (e) { /* storage unavailable or corrupt: start fresh */ }
-    return { settings: Object.assign({}, DEFAULT_SETTINGS), bets: [] };
+    return { settings: normalizeSettings(), bets: [] };
   }
 
   function save() {
@@ -132,12 +141,13 @@
       if (settingsSnap.exists || cloudBets.length) {
         // The account already has data: it wins over this browser's copy.
         state = {
-          settings: Object.assign({}, DEFAULT_SETTINGS, settingsSnap.exists ? settingsSnap.data() : {}),
+          settings: normalizeSettings(settingsSnap.exists ? settingsSnap.data() : {}),
           bets: cloudBets,
         };
         cloud.synced.settings = settingsSnap.exists ? JSON.stringify(state.settings) : null;
         cloudBets.forEach((b) => cloud.synced.bets.set(b.id, JSON.stringify(b)));
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* cache only */ }
+        applyFields();
         fillSettings();
         resetForm();
         renderAll();
@@ -641,13 +651,14 @@
   }
 
   function breakdownGroups() {
-    const groups = C.groupSummary(state.bets.filter(C.isGraded), breakdownKey);
+    const graded = state.bets.filter(C.isGraded).map((b) => Object.assign({}, b, { format: C.betFormat(b) }));
+    const groups = C.groupSummary(graded, breakdownKey);
     const MAX = 10;
     if (groups.length <= MAX) return groups;
     const keep = groups.slice(0, MAX - 1);
     const rest = groups.slice(MAX - 1);
     const restNames = new Set(rest.map((g) => g.name));
-    const restBets = state.bets.filter((b) => C.isGraded(b) && restNames.has((b[breakdownKey] && String(b[breakdownKey]).trim()) || 'Other'));
+    const restBets = graded.filter((b) => restNames.has((b[breakdownKey] && String(b[breakdownKey]).trim()) || 'Other'));
     keep.push(Object.assign({ name: 'Other (' + rest.length + ')' }, C.summarize(restBets)));
     return keep;
   }
@@ -662,7 +673,7 @@
       return;
     }
 
-    table.innerHTML = '<thead><tr><th>' + { sport: 'Sport', type: 'Bet type', book: 'Sportsbook' }[breakdownKey] +
+    table.innerHTML = '<thead><tr><th>' + { sport: 'Sport', format: 'Format', book: 'Sportsbook' }[breakdownKey] +
       '</th><th class="num">Record</th><th class="num">Staked</th><th class="num">Profit</th><th class="num">Units</th><th class="num">ROI</th></tr></thead><tbody>' +
       groups.map((g) => '<tr><td>' + esc(g.name) + '</td><td class="num">' + g.wins + '-' + g.losses + (g.pushes ? '-' + g.pushes : '') +
         '</td><td class="num">' + money(g.staked) + '</td><td class="num ' + tone(g.profit) + '">' + money(g.profit, true) +
@@ -767,12 +778,14 @@
     const q = $('#filter-text').value.trim().toLowerCase();
     const status = $('#filter-status').value;
     const sport = $('#filter-sport').value;
+    const fmtFilter = $('#filter-format').value;
     const book = $('#filter-book').value;
     return state.bets.filter((b) => {
       if (status && b.status !== status) return false;
       if (sport && (b.sport || '').trim() !== sport) return false;
+      if (fmtFilter && C.betFormat(b) !== fmtFilter) return false;
       if (book && (b.book || '').trim() !== book) return false;
-      if (q && ![b.event, b.selection, b.notes, b.sport, b.type, b.book].join(' ').toLowerCase().includes(q)) return false;
+      if (q && ![b.event, b.selection, b.notes, b.sport, b.book, C.betFormat(b)].join(' ').toLowerCase().includes(q)) return false;
       return true;
     }).sort((a, b) => -C.byDate(a, b));
   }
@@ -802,19 +815,23 @@
     const plText = (b) => b.status === 'pending'
       ? '<span style="color:var(--muted)">to win ' + money(Number(b.stake) * (Number(b.odds) - 1)) + '</span>'
       : money(C.betProfit(b), true);
+    const formatTag = (b) => {
+      const f = C.betFormat(b);
+      return '<span class="format-tag' + (f === 'Parlay' ? ' parlay' : '') + '">' + (f === 'Parlay' && b.legs ? b.legs + '-leg parlay' : f) + '</span>';
+    };
     const statusPill = (b) => '<span class="status ' + b.status + '">' + (b.status === 'cashout' ? 'Cashed out' : b.status) + '</span>';
 
     if (env.device === 'phone') {
       // Phone: one card per bet instead of a wide table.
       table.innerHTML = '';
       cards.innerHTML = list.map((b) => {
-        const meta = [fmtDate(b.date), b.sport, b.book, C.formatOdds(Number(b.odds), fmt)].filter(Boolean).map(esc).join(' · ');
+        const meta = [fmtDate(b.date), b.book, b.sport, C.formatOdds(Number(b.odds), fmt)].filter(Boolean).map(esc).join(' · ');
         return '<article class="bet-card ' + b.status + '">' +
           '<div class="bc-top"><div class="bc-event">' + esc(b.event) +
-            (b.selection || b.type ? '<div class="sel">' + esc([b.selection, b.type].filter(Boolean).join(' · ')) + '</div>' : '') +
+            (b.selection ? '<div class="sel">' + esc(b.selection) + '</div>' : '') +
           '</div><div class="bc-pl ' + tone(C.betProfit(b)) + '">' + plText(b) + '</div></div>' +
           '<div class="bc-meta">' + meta + '</div>' +
-          '<div class="bc-foot">' + statusPill(b) + '<span class="bc-stake">' + money(Number(b.stake)) + ' · ' + units(Number(b.units)) + '</span>' +
+          '<div class="bc-foot">' + statusPill(b) + formatTag(b) + '<span class="bc-stake">' + money(Number(b.stake)) + ' · ' + units(Number(b.units)) + '</span>' +
             '<div class="row-actions">' + settleButtons(b) + editButtons(b) + '</div></div>' +
         '</article>';
       }).join('');
@@ -822,13 +839,13 @@
     }
     cards.innerHTML = '';
     table.innerHTML =
-      '<thead><tr><th>Date</th><th>Event</th><th>Sport</th><th>Book</th><th class="num">Odds</th><th class="num">Stake</th><th>Result</th><th class="num">P/L</th><th class="num"><span class="visually-hidden">Actions</span></th></tr></thead><tbody>' +
+      '<thead><tr><th>Date</th><th>Bet</th><th>Format</th><th>Book</th><th class="num">Odds</th><th class="num">Stake</th><th>Result</th><th class="num">P/L</th><th class="num"><span class="visually-hidden">Actions</span></th></tr></thead><tbody>' +
       list.map((b) => {
         const pl = C.betProfit(b);
         return '<tr>' +
           '<td>' + esc(fmtDate(b.date)) + '</td>' +
-          '<td class="event">' + esc(b.event) + (b.selection ? '<div class="sel">' + esc(b.selection) + (b.type ? ' · ' + esc(b.type) : '') + '</div>' : (b.type ? '<div class="sel">' + esc(b.type) + '</div>' : '')) + '</td>' +
-          '<td>' + esc(b.sport || '') + '</td>' +
+          '<td class="event">' + esc(b.event) + ([b.selection, b.sport].filter(Boolean).length ? '<div class="sel">' + esc([b.selection, b.sport].filter(Boolean).join(' · ')) + '</div>' : '') + '</td>' +
+          '<td>' + formatTag(b) + '</td>' +
           '<td>' + (b.book ? esc(b.book) : '<span style="color:var(--muted)">—</span>') + '</td>' +
           '<td class="num">' + C.formatOdds(Number(b.odds), fmt) + '</td>' +
           '<td class="num">' + money(Number(b.stake)) + '<div class="sel" style="color:var(--muted);font-size:12px">' + units(Number(b.units)) + '</div></td>' +
@@ -923,11 +940,14 @@
       bankroll: currentBankroll(),
       unit: currentUnit(),
       odds,
-      winProb: wp,
-      confidence,
+      winProb: state.settings.fields.winProb ? wp : null,
+      confidence: state.settings.fields.confidence ? confidence : 2,
       kellyMultiplier: state.settings.kellyMultiplier,
       maxUnits: state.settings.maxUnits,
     });
+    if (r.method === 'confidence' && !state.settings.fields.confidence) {
+      r.reasons = ['Your standard 1-unit stake. Turn on Confidence in Settings to size bets up or down.'];
+    }
     lastReco = r;
     box.classList.toggle('pass', r.pass);
     if (!r.method) {
@@ -951,6 +971,27 @@
     updateFormHints();
   }
 
+  function setFormat(f) {
+    betFormat = f === 'Parlay' ? 'Parlay' : 'Single';
+    $$('#format button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.format === betFormat)));
+    $('#legs-field').hidden = betFormat !== 'Parlay';
+  }
+
+  /** Show or hide the optional bet-form fields (and the filters/breakdowns tied to them). */
+  function applyFields() {
+    const f = state.settings.fields;
+    $$('[data-field]').forEach((el) => { el.hidden = !f[el.dataset.field]; });
+    $$('#field-toggles [data-toggle]').forEach((cb) => { cb.checked = !!f[cb.dataset.toggle]; });
+    if (!f.sport && breakdownKey === 'sport') {
+      breakdownKey = 'format';
+      $$('#breakdown-key button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.key === 'format')));
+    }
+    if (!f.sport) $('#filter-sport').value = '';
+    $('#form-sub').textContent = f.confidence || f.winProb
+      ? 'Pick single or parlay, enter the odds, and get a recommended stake.'
+      : 'Pick single or parlay, enter the odds and stake, and mark the result.';
+  }
+
   function setConfidence(v) {
     confidence = v;
     $$('#confidence button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === v)));
@@ -960,6 +1001,7 @@
     setBookOptions();
     form.reset();
     setOddsSign('-');
+    setFormat('Single');
     form.id.value = '';
     form.date.value = today();
     $('#f-stake-mode').value = 'dollars';
@@ -977,7 +1019,8 @@
     form.id.value = b.id;
     form.date.value = b.date || today();
     form.sport.value = b.sport || '';
-    form.type.value = b.type || '';
+    setFormat(C.betFormat(b));
+    form.legs.value = b.legs || '';
     setBookOptions(b.book);
     form.book.value = b.book || '';
     form.event.value = b.event || '';
@@ -1019,14 +1062,19 @@
       return;
     }
     const wp = form.winProb.value === '' ? null : Number(form.winProb.value) / 100;
+    const legs = betFormat === 'Parlay' && Number(form.legs.value) >= 2 ? Math.round(Number(form.legs.value)) : null;
+    const label = form.event.value.trim() ||
+      (betFormat === 'Parlay' ? (legs ? legs + '-leg parlay' : 'Parlay') : (form.selection.value.trim() || 'Single bet'));
     const bet = {
       id: existing ? existing.id : uid(),
       createdAt: existing ? existing.createdAt : Date.now(),
       date: form.date.value || today(),
       sport: form.sport.value.trim(),
-      type: form.type.value.trim(),
+      type: existing ? existing.type || '' : '',
+      format: betFormat,
+      legs,
       book: form.book.value.trim(),
-      event: form.event.value.trim(),
+      event: label,
       selection: form.selection.value.trim(),
       odds,
       stake,
@@ -1127,8 +1175,9 @@
           .map((b) => Object.assign({ id: uid(), createdAt: Date.now() }, b));
         askConfirm('Replace your ' + state.bets.length + ' current bets with the ' + bets.length + ' bets in this backup?', 'Replace bets', true).then((ok) => {
           if (!ok) return;
-          state = { settings: Object.assign({}, DEFAULT_SETTINGS, data.settings), bets };
+          state = { settings: normalizeSettings(data.settings), bets };
           save();
+          applyFields();
           fillSettings();
           resetForm();
           renderAll();
@@ -1186,6 +1235,18 @@
     }));
     form.addEventListener('submit', submitBet);
     $('#cancel-edit').addEventListener('click', resetForm);
+    $$('#format button').forEach((b) => b.addEventListener('click', () => {
+      setFormat(b.dataset.format);
+      if (betFormat === 'Parlay') form.legs.focus({ preventScroll: true });
+    }));
+    $$('#field-toggles [data-toggle]').forEach((cb) => cb.addEventListener('change', () => {
+      state.settings.fields[cb.dataset.toggle] = cb.checked;
+      save();
+      applyFields();
+      renderAll();
+      updateFormHints();
+      toast((cb.checked ? 'Showing ' : 'Hiding ') + cb.closest('.toggle').querySelector('strong').textContent.toLowerCase() + '.');
+    }));
     $$('#odds-sign button').forEach((b) => b.addEventListener('click', () => {
       setOddsSign(b.dataset.sign);
       updateFormHints();
@@ -1233,7 +1294,7 @@
     $('#bets-table').addEventListener('click', onBetAction);
     $('#bets-list').addEventListener('click', onBetAction);
 
-    ['#filter-text', '#filter-status', '#filter-sport', '#filter-book'].forEach((s) => $(s).addEventListener('input', renderBetsTable));
+    ['#filter-text', '#filter-status', '#filter-sport', '#filter-book', '#filter-format'].forEach((s) => $(s).addEventListener('input', renderBetsTable));
 
     sForm.addEventListener('submit', submitSettings);
     sForm.addEventListener('input', syncPresets);
@@ -1288,6 +1349,7 @@
     });
     wireInstall();
 
+    applyFields();
     fillSettings();
     resetForm();
     renderAll();

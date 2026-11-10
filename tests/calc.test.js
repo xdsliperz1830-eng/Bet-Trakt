@@ -130,3 +130,11 @@ test('CSV export escapes fields and includes profit', () => {
   assert.ok(row.includes('"A, ""B"""'));
   assert.ok(row.includes(',10,'));
 });
+
+test('betFormat: explicit format, or parlay inferred from older bets', () => {
+  assert.equal(C.betFormat({ format: 'Parlay' }), 'Parlay');
+  assert.equal(C.betFormat({ format: 'Single', event: '3-leg parlay' }), 'Single');
+  assert.equal(C.betFormat({ type: 'Parlay' }), 'Parlay');
+  assert.equal(C.betFormat({ type: 'Spread', event: 'Chiefs vs Bills' }), 'Single');
+  assert.equal(C.betFormat({}), 'Single');
+});

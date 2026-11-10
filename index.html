@@ -85,9 +85,9 @@
             <p class="sub">Where your money is coming from, and where it is going.</p>
           </div>
           <div class="segmented" id="breakdown-key" role="group" aria-label="Group by">
-            <button type="button" data-key="sport" aria-pressed="true">Sport</button>
-            <button type="button" data-key="type" aria-pressed="false">Bet type</button>
+            <button type="button" data-key="format" aria-pressed="true">Format</button>
             <button type="button" data-key="book" aria-pressed="false">Sportsbook</button>
+            <button type="button" data-key="sport" aria-pressed="false" data-field="sport">Sport</button>
           </div>
         </div>
         <div class="chart" id="breakdown-chart"></div>
@@ -105,7 +105,7 @@
       </div>
       <div class="card">
         <h2 id="form-title">Add a bet</h2>
-        <p class="sub">Enter the odds, then set your confidence or your own win probability to get a recommended stake.</p>
+        <p class="sub" id="form-sub">Pick single or parlay, enter the odds, and get a recommended stake.</p>
         <form id="bet-form" autocomplete="off">
           <input type="hidden" name="id">
           <div class="form-grid">
@@ -114,27 +114,30 @@
               <input type="date" id="f-date" name="date" required>
             </div>
             <div class="field">
+              <label for="f-book">Sportsbook</label>
+              <select id="f-book" name="book"></select>
+            </div>
+            <div class="field">
+              <span class="label">Format</span>
+              <div class="segmented format-pick" id="format" role="group" aria-label="Single or parlay">
+                <button type="button" data-format="Single" aria-pressed="true">Single</button>
+                <button type="button" data-format="Parlay" aria-pressed="false">Parlay</button>
+              </div>
+            </div>
+            <div class="field" id="legs-field" hidden>
+              <label for="f-legs">Legs</label>
+              <input type="number" id="f-legs" name="legs" min="2" max="30" step="1" inputmode="numeric" placeholder="e.g. 3">
+            </div>
+            <div class="field wide">
+              <label for="f-event">Bet <span class="optional">optional</span></label>
+              <input type="text" id="f-event" name="event" placeholder="e.g. Chiefs ML, or Chiefs / Bills / Lions">
+            </div>
+            <div class="field" data-field="sport">
               <label for="f-sport">Sport / league</label>
               <input type="text" id="f-sport" name="sport" list="sport-list" placeholder="NFL">
               <datalist id="sport-list"></datalist>
             </div>
-            <div class="field">
-              <label for="f-type">Bet type</label>
-              <input type="text" id="f-type" name="type" list="type-list" placeholder="Spread">
-              <datalist id="type-list">
-                <option value="Moneyline"><option value="Spread"><option value="Total"><option value="Prop">
-                <option value="Parlay"><option value="Teaser"><option value="Future"><option value="Live">
-              </datalist>
-            </div>
-            <div class="field">
-              <label for="f-book">Sportsbook</label>
-              <select id="f-book" name="book"></select>
-            </div>
-            <div class="field wide">
-              <label for="f-event">Event</label>
-              <input type="text" id="f-event" name="event" placeholder="Chiefs vs Bills" required>
-            </div>
-            <div class="field wide">
+            <div class="field wide" data-field="selection">
               <label for="f-selection">Pick</label>
               <input type="text" id="f-selection" name="selection" placeholder="Chiefs -3.5">
             </div>
@@ -149,7 +152,7 @@
               </div>
               <span class="hint" id="odds-hint">&nbsp;</span>
             </div>
-            <div class="field">
+            <div class="field" data-field="confidence">
               <span class="label">Confidence</span>
               <div class="segmented" id="confidence" role="group" aria-label="Confidence">
                 <button type="button" data-v="1" aria-pressed="false">1</button>
@@ -160,7 +163,7 @@
               </div>
               <span class="hint" id="confidence-hint">&nbsp;</span>
             </div>
-            <div class="field">
+            <div class="field" data-field="winProb">
               <label for="f-winprob">Your win probability %</label>
               <input type="number" id="f-winprob" name="winProb" min="1" max="99" step="0.1" placeholder="Optional, e.g. 55">
               <span class="hint">Fill this in to size by Kelly</span>
@@ -191,7 +194,7 @@
               <label for="f-cashout">Cash-out amount ($)</label>
               <input type="number" id="f-cashout" name="cashout" min="0" step="0.01">
             </div>
-            <div class="field wide">
+            <div class="field wide" data-field="notes">
               <label for="f-notes">Notes</label>
               <textarea id="f-notes" name="notes" placeholder="Why you like it, line movement, etc."></textarea>
             </div>
@@ -224,7 +227,12 @@
             <option value="void">Void</option>
             <option value="cashout">Cashed out</option>
           </select>
-          <select id="filter-sport" aria-label="Filter by sport"><option value="">All sports</option></select>
+          <select id="filter-format" aria-label="Filter by format">
+            <option value="">Singles and parlays</option>
+            <option value="Single">Singles</option>
+            <option value="Parlay">Parlays</option>
+          </select>
+          <select id="filter-sport" aria-label="Filter by sport" data-field="sport"><option value="">All sports</option></select>
           <select id="filter-book" aria-label="Filter by sportsbook"><option value="">All books</option></select>
         </div>
         <div class="table-wrap">
@@ -294,6 +302,17 @@
         </div>
 
         <div class="stack">
+          <div class="card">
+            <h2>Bet form</h2>
+            <p class="sub">Show only what you track. Date, sportsbook, single or parlay, odds, stake and result are always there.</p>
+            <div class="toggle-list" id="field-toggles">
+              <label class="toggle"><span><strong>Confidence</strong><small>1–5 rating that sets the recommended units</small></span><input type="checkbox" class="switch" data-toggle="confidence"></label>
+              <label class="toggle"><span><strong>Sport / league</strong><small>Adds a sport filter and breakdown</small></span><input type="checkbox" class="switch" data-toggle="sport"></label>
+              <label class="toggle"><span><strong>Pick</strong><small>Team, line or player, like "Chiefs -3.5"</small></span><input type="checkbox" class="switch" data-toggle="selection"></label>
+              <label class="toggle"><span><strong>Your win probability</strong><small>Sizes the stake with the Kelly formula</small></span><input type="checkbox" class="switch" data-toggle="winProb"></label>
+              <label class="toggle"><span><strong>Notes</strong><small>Free text for each bet</small></span><input type="checkbox" class="switch" data-toggle="notes"></label>
+            </div>
+          </div>
           <div class="card">
             <h2>Your data</h2>
             <p class="sub" id="storage-note">Your bets are stored in this browser only. Download a backup regularly, and use it to move your bets to another device.</p>

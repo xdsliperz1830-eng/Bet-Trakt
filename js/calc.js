@@ -70,6 +70,12 @@
     return (betProfit(bet) / stake) * units;
   }
 
+  /** 'Single' or 'Parlay'. Older bets without a format count as parlays if their type or name says so. */
+  function betFormat(bet) {
+    if (bet.format === 'Parlay' || bet.format === 'Single') return bet.format;
+    return /parlay/i.test(String(bet.type || '') + ' ' + String(bet.event || '')) ? 'Parlay' : 'Single';
+  }
+
   function isSettled(bet) {
     return bet.status !== 'pending';
   }
@@ -347,7 +353,7 @@
 
   /* ---------- CSV ---------- */
 
-  const CSV_FIELDS = ['date', 'sport', 'event', 'type', 'selection', 'book', 'odds', 'stake', 'units', 'status', 'cashout', 'profit', 'notes'];
+  const CSV_FIELDS = ['date', 'format', 'legs', 'book', 'event', 'sport', 'selection', 'odds', 'stake', 'units', 'status', 'cashout', 'profit', 'notes'];
 
   function csvCell(v) {
     const s = v == null ? '' : String(v);
@@ -357,7 +363,7 @@
   function toCSV(bets) {
     const rows = [CSV_FIELDS.join(',')];
     for (const b of bets.slice().sort(byDate)) {
-      const row = Object.assign({}, b, { profit: round(betProfit(b), 2), odds: round(Number(b.odds), 4) });
+      const row = Object.assign({}, b, { format: betFormat(b), profit: round(betProfit(b), 2), odds: round(Number(b.odds), 4) });
       rows.push(CSV_FIELDS.map((f) => csvCell(row[f])).join(','));
     }
     return rows.join('\n');
@@ -366,7 +372,7 @@
   return {
     STATUSES, RISK_PROFILES, CONFIDENCE_UNITS, CSV_FIELDS,
     americanToDecimal, decimalToAmerican, parseOdds, formatOdds, impliedProbability,
-    betProfit, betUnitsProfit, isSettled, isGraded, byDate,
+    betProfit, betUnitsProfit, betFormat, isSettled, isGraded, byDate,
     summarize, groupSummary, bankrollSeries,
     unitSize, kellyFraction, recommendStake, unitAdvice,
     toCSV, round,
