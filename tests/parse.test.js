@@ -45,6 +45,12 @@ test('several bets, one per line', () => {
   assert.equal(bets[2].book, 'Chalkboard');
 });
 
+test('Fliff is recognised as a sportsbook', () => {
+  const [b] = P.parseBets('Knicks +140 $15 on Fliff', opts);
+  assert.equal(b.book, 'Fliff');
+  assert.equal(b.event, 'Knicks');
+});
+
 test('units, word odds and dates', () => {
   const [b] = P.parseBets('2u on Celtics minus 120 yesterday', opts);
   assert.equal(b.units, 2);

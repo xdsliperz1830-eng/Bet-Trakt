@@ -49,7 +49,7 @@ On load (and whenever the window changes), the app sets two attributes on `<html
 - On the claude.ai page, Claude reads the text and screenshots. On GitHub Pages, text is read by `js/parse.js` and screenshots by on-device OCR ([Tesseract.js](https://github.com/naptha/tesseract.js), about 4 MB, downloaded the first time you use it and then cached)
 
 **A short bet form**
-- Date, sportsbook (FanDuel, DraftKings, Sleeper, Chalkboard), **Single or Parlay** (with number of legs), odds, stake and result
+- Date, sportsbook (FanDuel, DraftKings, Sleeper, Chalkboard, Fliff), **Single or Parlay** (with number of legs), odds, stake and result
 - Optional fields you can switch on in **Settings → Bet form**: confidence (on by default), sport, pick, your win probability and notes
 
 **Profit and loss**

@@ -4,7 +4,7 @@
   const C = window.BetCalc;
   const STORAGE_KEY = 'bettrakt:v1';
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const BOOKS = ['FanDuel', 'DraftKings', 'Sleeper', 'Chalkboard'];
+  const BOOKS = ['FanDuel', 'DraftKings', 'Sleeper', 'Chalkboard', 'Fliff'];
 
   const DEFAULT_SETTINGS = {
     startingBankroll: 1000,
@@ -1227,13 +1227,13 @@
   function claudePrompt(text, withImage) {
     return [
       'You read sports bets and return them as JSON for a personal bet tracker.',
-      "Today's date is " + today() + '. The user bets at FanDuel, DraftKings, Sleeper and Chalkboard.',
+      "Today's date is " + today() + '. The user bets at ' + BOOKS.slice(0, -1).join(', ') + ' and ' + BOOKS[BOOKS.length - 1] + '.',
       withImage
         ? 'The attached image is a screenshot from a sportsbook app: a bet slip, or a list of placed or settled bets.'
         : 'The text below is how the user describes one or more bets.',
       'Find every separate bet. A parlay is ONE bet with several legs. Do not invent bets or numbers.',
       'Return ONLY a JSON array. Each item:',
-      '{"format":"Single"|"Parlay","legs":number|null,"description":string,"book":"FanDuel"|"DraftKings"|"Sleeper"|"Chalkboard"|null,' +
+      '{"format":"Single"|"Parlay","legs":number|null,"description":string,"book":' + BOOKS.map((b) => '"' + b + '"').join('|') + '|null,' +
         '"american_odds":number|null,"stake":number|null,"units":number|null,"to_win":number|null,' +
         '"status":"pending"|"won"|"lost"|"push"|"void"|"cashout","cashout":number|null,"date":"YYYY-MM-DD"|null}',
       'Rules: description is short, like "Chiefs ML" or "Chiefs / Bills / Lions" (team or player names, no odds).',
