@@ -4,6 +4,7 @@
   const C = window.BetCalc;
   const STORAGE_KEY = 'bettrakt:v1';
   const SVG_NS = 'http://www.w3.org/2000/svg';
+  const BOOKS = ['FanDuel', 'DraftKings', 'Sleeper', 'Chalkboard'];
 
   const DEFAULT_SETTINGS = {
     startingBankroll: 1000,
@@ -541,16 +542,29 @@
     sel.innerHTML = '<option value="">All sports</option>' + sports.map((s) => '<option>' + esc(s) + '</option>').join('');
     sel.value = sports.includes(cur) ? cur : '';
     $('#sport-list').innerHTML = sports.map((s) => '<option value="' + esc(s) + '">').join('');
-    $('#book-list').innerHTML = books.map((s) => '<option value="' + esc(s) + '">').join('');
+    // Keep any book from older bets in the filter so those bets can still be found.
+    const allBooks = BOOKS.concat(books.filter((x) => !BOOKS.includes(x)).sort());
+    const bookSel = $('#filter-book');
+    const curBook = bookSel.value;
+    bookSel.innerHTML = '<option value="">All books</option>' + allBooks.map((s) => '<option>' + esc(s) + '</option>').join('');
+    bookSel.value = allBooks.includes(curBook) ? curBook : '';
+  }
+
+  /** Fill the form's book dropdown; `extra` keeps an older bet's book selectable while editing it. */
+  function setBookOptions(extra) {
+    const list = extra && !BOOKS.includes(extra) ? BOOKS.concat([extra]) : BOOKS;
+    form.book.innerHTML = '<option value="">Choose a book</option>' + list.map((s) => '<option>' + esc(s) + '</option>').join('');
   }
 
   function filteredBets() {
     const q = $('#filter-text').value.trim().toLowerCase();
     const status = $('#filter-status').value;
     const sport = $('#filter-sport').value;
+    const book = $('#filter-book').value;
     return state.bets.filter((b) => {
       if (status && b.status !== status) return false;
       if (sport && (b.sport || '').trim() !== sport) return false;
+      if (book && (b.book || '').trim() !== book) return false;
       if (q && ![b.event, b.selection, b.notes, b.sport, b.type, b.book].join(' ').toLowerCase().includes(q)) return false;
       return true;
     }).sort((a, b) => -C.byDate(a, b));
@@ -573,7 +587,7 @@
     }
     const fmt = state.settings.oddsFormat;
     table.innerHTML =
-      '<thead><tr><th>Date</th><th>Event</th><th>Sport</th><th class="num">Odds</th><th class="num">Stake</th><th>Result</th><th class="num">P/L</th><th class="num"><span class="visually-hidden">Actions</span></th></tr></thead><tbody>' +
+      '<thead><tr><th>Date</th><th>Event</th><th>Sport</th><th>Book</th><th class="num">Odds</th><th class="num">Stake</th><th>Result</th><th class="num">P/L</th><th class="num"><span class="visually-hidden">Actions</span></th></tr></thead><tbody>' +
       list.map((b) => {
         const pl = C.betProfit(b);
         const settle = b.status === 'pending'
@@ -585,6 +599,7 @@
           '<td>' + esc(fmtDate(b.date)) + '</td>' +
           '<td class="event">' + esc(b.event) + (b.selection ? '<div class="sel">' + esc(b.selection) + (b.type ? ' · ' + esc(b.type) : '') + '</div>' : (b.type ? '<div class="sel">' + esc(b.type) + '</div>' : '')) + '</td>' +
           '<td>' + esc(b.sport || '') + '</td>' +
+          '<td>' + (b.book ? esc(b.book) : '<span style="color:var(--muted)">—</span>') + '</td>' +
           '<td class="num">' + C.formatOdds(Number(b.odds), fmt) + '</td>' +
           '<td class="num">' + money(Number(b.stake)) + '<div class="sel" style="color:var(--muted);font-size:12px">' + units(Number(b.units)) + '</div></td>' +
           '<td><span class="status ' + b.status + '">' + (b.status === 'cashout' ? 'Cashed out' : b.status) + '</span></td>' +
@@ -686,6 +701,7 @@
   }
 
   function resetForm() {
+    setBookOptions();
     form.reset();
     form.id.value = '';
     form.date.value = today();
@@ -705,6 +721,7 @@
     form.date.value = b.date || today();
     form.sport.value = b.sport || '';
     form.type.value = b.type || '';
+    setBookOptions(b.book);
     form.book.value = b.book || '';
     form.event.value = b.event || '';
     form.selection.value = b.selection || '';
@@ -768,6 +785,7 @@
     save();
     toast(existing ? 'Bet updated.' : 'Bet added: ' + units(bet.units) + ' on ' + (bet.selection || bet.event) + '.');
     resetForm();
+    if (BOOKS.includes(bet.book)) form.book.value = bet.book; // most people log several bets at one book
     renderAll();
   }
 
@@ -881,7 +899,7 @@
       ['NFL', 'Parlay', '3-leg parlay', 'Ravens / 49ers / Lions ML', 260],
       ['NBA', 'Total', 'Bucks vs Heat', 'Under 221.5', -110],
     ];
-    const books = ['DraftKings', 'FanDuel', 'BetMGM'];
+    const books = BOOKS;
     const out = [];
     const unit = C.unitSize(state.settings, state.settings.startingBankroll);
     const start = new Date();
@@ -974,7 +992,7 @@
       renderAll();
     });
 
-    ['#filter-text', '#filter-status', '#filter-sport'].forEach((s) => $(s).addEventListener('input', renderBetsTable));
+    ['#filter-text', '#filter-status', '#filter-sport', '#filter-book'].forEach((s) => $(s).addEventListener('input', renderBetsTable));
 
     sForm.addEventListener('submit', submitSettings);
     sForm.addEventListener('input', syncPresets);

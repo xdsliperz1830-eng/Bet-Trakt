@@ -102,8 +102,7 @@
             </div>
             <div class="field">
               <label for="f-book">Sportsbook</label>
-              <input type="text" id="f-book" name="book" list="book-list" placeholder="Optional">
-              <datalist id="book-list"></datalist>
+              <select id="f-book" name="book"></select>
             </div>
             <div class="field wide">
               <label for="f-event">Event</label>
@@ -194,6 +193,7 @@
             <option value="cashout">Cashed out</option>
           </select>
           <select id="filter-sport" aria-label="Filter by sport"><option value="">All sports</option></select>
+          <select id="filter-book" aria-label="Filter by sportsbook"><option value="">All books</option></select>
         </div>
         <div class="table-wrap">
           <table class="data" id="bets-table"></table>
