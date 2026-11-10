@@ -6,7 +6,19 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "python3 -m http.server 8000",
-    "build:artifact": "node scripts/build-artifact.js"
+    "build:artifact": "node scripts/build-artifact.js",
+    "build:web": "node scripts/build-web.js",
+    "sync": "node scripts/build-web.js && npx cap sync"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0"
+  }
 }

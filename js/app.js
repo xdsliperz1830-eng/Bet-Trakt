@@ -6,7 +6,9 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const BOOKS = ['FanDuel', 'DraftKings', 'Sleeper', 'Chalkboard', 'Fliff'];
   // Shown in Settings -> This device. Bump with every release (and CACHE in sw.js).
-  const APP_VERSION = '1.8';
+  const APP_VERSION = '1.9';
+  // Where the Android app looks for newer builds (GitHub Releases of this repo)
+  const RELEASES_API = 'https://api.github.com/repos/xdsliperz1830-eng/Bet-Trakt/releases/latest';
 
   const DEFAULT_SETTINGS = {
     startingBankroll: 1000,
@@ -331,8 +333,17 @@
   // device:  'phone' | 'desktop'  -> layout (bottom tab bar and bet cards on phones)
   // display: 'app'   | 'browser'  -> opened from the home screen / installed, or in a browser tab
   const env = { device: 'desktop', display: 'browser', ios: false, android: false };
+  // Inside the Android/iPhone app (Capacitor), the page runs from the app itself.
+  const isNative = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  const nativePlatform = isNative && typeof window.Capacitor.getPlatform === 'function' ? window.Capacitor.getPlatform() : '';
   // The GitHub Pages build ships a web app manifest; the claude.ai artifact build does not.
-  const isSite = !!document.querySelector('link[rel="manifest"]');
+  const isSite = !!document.querySelector('link[rel="manifest"]') && !isNative;
+
+  /** A Capacitor plugin by name (native app only). */
+  function nativePlugin(name) {
+    const reg = (window.capacitorExports && window.capacitorExports.registerPlugin) || (window.Capacitor && window.Capacitor.registerPlugin);
+    return isNative && reg ? reg(name) : null;
+  }
   const INSTALL_DISMISS_KEY = 'bettrakt:install-dismissed';
   let installPrompt = null;
 
@@ -344,7 +355,7 @@
     const shortSide = Math.min(screen.width || Infinity, screen.height || Infinity);
     const touchPhone = mm('(pointer: coarse)') && shortSide < 600;
     env.device = touchPhone || mm('(max-width: 700px)') || /iPhone|iPod|Android.+Mobile/.test(ua) ? 'phone' : 'desktop';
-    env.display = mm('(display-mode: standalone)') || mm('(display-mode: fullscreen)') || mm('(display-mode: minimal-ui)') ||
+    env.display = isNative || mm('(display-mode: standalone)') || mm('(display-mode: fullscreen)') || mm('(display-mode: minimal-ui)') ||
       navigator.standalone === true ? 'app' : 'browser';
     document.documentElement.dataset.device = env.device;
     document.documentElement.dataset.display = env.display;
@@ -368,6 +379,13 @@
       ? (phone ? 'opened from your home screen' : 'running as an installed app')
       : (isSite ? 'open in a browser tab' : 'open inside Claude');
     let text = 'Version ' + APP_VERSION + '. ' + (phone ? 'Phone' : 'Computer') + ', ' + where + '. ';
+    if (isNative) {
+      $('#device-info').textContent = 'Version ' + APP_VERSION + '. Bet-Trakt ' + (nativePlatform === 'ios' ? 'iPhone' : 'Android') +
+        ' app. Your bets are saved in the app on this phone, so download a backup now and then.';
+      $('#device-actions').hidden = true;
+      $('#install-banner').hidden = true;
+      return;
+    }
     if (env.display === 'app') {
       text += 'You are all set.';
       if (env.ios) text += ' Bets saved here are kept separately from Safari, so keep using the home-screen app.';
@@ -419,7 +437,38 @@
     });
   }
 
+  /**
+   * Android app: installed APKs don't update themselves, so check GitHub Releases for a
+   * newer build and offer a download. Release tags look like "android-build-12".
+   */
+  let updateChecked = 0;
+  async function checkAppUpdate() {
+    const current = Number(window.BETTRAKT_BUILD) || 0;
+    if (!isNative || nativePlatform !== 'android' || !current) return;
+    if (Date.now() - updateChecked < 10 * 60 * 1000) return; // at most every 10 minutes
+    updateChecked = Date.now();
+    try {
+      const res = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) return;
+      const rel = await res.json();
+      const latest = Number(String(rel.tag_name || '').replace(/^\D+/, '')) || 0;
+      const apk = (rel.assets || []).find((a) => /\.apk$/i.test(a.name || ''));
+      if (latest > current && apk && /^https:\/\/github\.com\//.test(apk.browser_download_url || '')) {
+        $('#update-text').textContent = 'A new version of the Bet-Trakt app is ready.';
+        const btn = $('#update-reload');
+        btn.textContent = 'Download';
+        btn.onclick = () => { location.href = apk.browser_download_url; };
+        $('#update-bar').hidden = false;
+      }
+    } catch (e) { /* offline: try again later */ }
+  }
+
   function registerServiceWorker() {
+    if (isNative) {
+      checkAppUpdate();
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkAppUpdate(); });
+      return;
+    }
     if (!isSite || !('serviceWorker' in navigator)) return;
     const secure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     if (!secure) return;
@@ -1160,6 +1209,18 @@
   /* ---------------- Import / export ---------------- */
 
   async function download(name, text, type) {
+    if (isNative) {
+      // In the app: write the file, then open the share sheet (Save to Files, Drive, email…)
+      try {
+        const fsPlugin = nativePlugin('Filesystem');
+        const share = nativePlugin('Share');
+        const res = await fsPlugin.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
+        await share.share({ title: name, files: [res.uri], dialogTitle: 'Save or send ' + name });
+      } catch (e) {
+        if (!/cancel/i.test(String((e && e.message) || ''))) toast('Could not share the file.', 'error');
+      }
+      return;
+    }
     const api = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
     const downloads = api ? await api.use('downloads').catch(() => null) : null;
     if (downloads) {
@@ -1394,7 +1455,7 @@
       }
       return;
     }
-    if (!isSite) {
+    if (!isSite && !isNative) {
       qaStatus('Reading screenshots is not available here. Type the bet instead.');
       return;
     }
@@ -1565,7 +1626,7 @@
         : "Type your bets the way you'd say them. Claude reads them, and you check each one before it's saved.";
       $('#qa-shot').hidden = !claudeImages;
       $('#qa-paste-btn').hidden = !claudeImages;
-    } else if (!isSite) {
+    } else if (!isSite && !isNative) {
       sub.textContent = "Type your bets the way you'd say them, and check each one before it's saved.";
       $('#qa-shot').hidden = true;
       $('#qa-paste-btn').hidden = true;
@@ -1611,7 +1672,7 @@
 
   /** "Paste screenshot" button: read the clipboard directly where allowed, else show the paste box. */
   async function pasteScreenshot() {
-    if (isSite && navigator.clipboard && navigator.clipboard.read) {
+    if ((isSite || isNative) && navigator.clipboard && navigator.clipboard.read) {
       try {
         const items = await navigator.clipboard.read();
         for (const it of items) {

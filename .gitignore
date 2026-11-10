@@ -1,3 +1,7 @@
 node_modules/
 .DS_Store
 dist/
+www/
+# Signing keys stay out of the repo (the Android build reads one from a GitHub secret)
+*.keystore
+*.jks

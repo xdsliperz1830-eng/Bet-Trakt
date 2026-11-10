@@ -85,6 +85,27 @@ On load (and whenever the window changes), the app sets two attributes on `<html
 | Win rate | wins ÷ (wins + losses); pushes excluded |
 | Units won | each bet's profit converted to units at the unit size *when the bet was placed* |
 
+## Android and iPhone apps (Capacitor)
+
+The same web app is packaged as a native app with [Capacitor](https://capacitorjs.com/). The projects live in `android/` and `ios/`.
+
+**Android.** Every push builds an APK on GitHub Actions (`.github/workflows/android.yml`) and publishes it as a release. Install the newest build on your phone from:
+
+`https://github.com/xdsliperz1830-eng/Bet-Trakt/releases/latest/download/bet-trakt.apk`
+
+The app checks for newer builds and shows a **Download** button. Updates only install over the old app (keeping your bets) when every build is signed with the same key. That key is kept out of the repo, in a repository secret:
+
+| Secret | Value |
+|---|---|
+| `BETTRAKT_KEYSTORE_BASE64` | The keystore file, base64-encoded |
+| `BETTRAKT_KEYSTORE_PASSWORD` | Its password (optional, defaults to `bettrakt`) |
+
+Without the secret, the workflow makes a **test build** signed with a one-off key, and the next build won't install over it.
+
+**iPhone.** `ios/` is ready for Xcode (Swift Package Manager, no CocoaPods). Installing on an iPhone needs an Apple Developer account for TestFlight. Until then, use the home-screen web app.
+
+**Local builds:** `npm install`, then `BUILD_NUMBER=1 npm run sync` (copies the web app into `www/` and both native projects), then open `android/` in Android Studio or `ios/App` in Xcode.
+
 ## Publishing as a claude.ai artifact
 
 ```bash

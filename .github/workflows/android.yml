@@ -1,0 +1,83 @@
+# Builds the Android app (APK) and publishes it as a GitHub Release.
+# Download link for the newest build:
+#   https://github.com/xdsliperz1830-eng/Bet-Trakt/releases/latest/download/bet-trakt.apk
+name: Build Android app
+
+on:
+  push:
+    branches: [claude/loving-cori-hb1n3x, main]
+    paths:
+      - 'index.html'
+      - 'styles.css'
+      - 'js/**'
+      - 'icons/**'
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/build-web.js'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Copy the web app into the Android project
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: npm run build:web && npx cap sync android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Signing key
+        id: key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BETTRAKT_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/bettrakt.keystore
+            echo "permanent=true" >> "$GITHUB_OUTPUT"
+          else
+            # No saved key yet: sign with a one-off key so the build still works.
+            keytool -genkeypair -keystore android/app/bettrakt.keystore -alias bettrakt -keyalg RSA -keysize 2048 \
+              -validity 10000 -storepass bettrakt -keypass bettrakt -dname "CN=Bet-Trakt test build" >/dev/null
+            echo "permanent=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No BETTRAKT_KEYSTORE_BASE64 secret, so this is a test build signed with a one-off key. Later builds will not install over it."
+          fi
+      - name: Build the APK
+        working-directory: android
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          BETTRAKT_KEYSTORE_PASSWORD: ${{ secrets.BETTRAKT_KEYSTORE_PASSWORD || 'bettrakt' }}
+          BETTRAKT_KEY_PASSWORD: ${{ secrets.BETTRAKT_KEYSTORE_PASSWORD || 'bettrakt' }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+      - run: cp android/app/build/outputs/apk/release/app-release.apk bet-trakt.apk
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Bet-Trakt for Android (build ${{ github.run_number }})${{ steps.key.outputs.permanent != 'true' && ' (test build)' || '' }}
+          body: |
+            Install on Android: open this page on your phone, tap **bet-trakt.apk**, then open the download.
+            The first time, Android asks you to allow installs from your browser.
+            ${{ steps.key.outputs.permanent == 'true' && 'Updates install over the old app and keep your bets.' || '**Test build:** signed with a one-off key, so the next build will not install over it. Uninstall it first (back up your bets in Settings).' }}
+          files: bet-trakt.apk
+          make_latest: true
