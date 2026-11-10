@@ -16,9 +16,7 @@
     configured: false,
   };
 
-  let firstVisit = false;
   let state = load();
-  if (firstVisit) state.bets = sampleBets(); // first visit: show a working example
   let breakdownKey = 'sport';
   let confidence = 2;
   let lastReco = null;
@@ -36,7 +34,6 @@
         };
       }
     } catch (e) { /* storage unavailable or corrupt: start fresh */ }
-    firstVisit = true;
     return { settings: Object.assign({}, DEFAULT_SETTINGS), bets: [] };
   }
 
@@ -253,6 +250,110 @@
 
   function currentBankroll() { return C.bankrollSeries(state.settings.startingBankroll, state.bets).current; }
   function currentUnit() { return C.unitSize(state.settings, currentBankroll()); }
+
+  /* ---------------- Device & display mode ---------------- */
+
+  // device:  'phone' | 'desktop'  -> layout (bottom tab bar and bet cards on phones)
+  // display: 'app'   | 'browser'  -> opened from the home screen / installed, or in a browser tab
+  const env = { device: 'desktop', display: 'browser', ios: false, android: false };
+  // The GitHub Pages build ships a web app manifest; the claude.ai artifact build does not.
+  const isSite = !!document.querySelector('link[rel="manifest"]');
+  const INSTALL_DISMISS_KEY = 'bettrakt:install-dismissed';
+  let installPrompt = null;
+
+  function detectEnv() {
+    const mm = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
+    const ua = navigator.userAgent || '';
+    env.ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    env.android = /Android/i.test(ua);
+    const shortSide = Math.min(screen.width || Infinity, screen.height || Infinity);
+    const touchPhone = mm('(pointer: coarse)') && shortSide < 600;
+    env.device = touchPhone || mm('(max-width: 700px)') || /iPhone|iPod|Android.+Mobile/.test(ua) ? 'phone' : 'desktop';
+    env.display = mm('(display-mode: standalone)') || mm('(display-mode: fullscreen)') || mm('(display-mode: minimal-ui)') ||
+      navigator.standalone === true ? 'app' : 'browser';
+    document.documentElement.dataset.device = env.device;
+    document.documentElement.dataset.display = env.display;
+  }
+  detectEnv();
+
+  function installDismissed() {
+    try { return localStorage.getItem(INSTALL_DISMISS_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  function installSteps() {
+    if (installPrompt) return 'It opens full screen like an app and works offline.';
+    if (env.ios) return 'Tap the Share button, then "Add to Home Screen".';
+    if (env.android) return 'Open your browser menu (⋮), then tap "Add to Home screen" or "Install app".';
+    return '';
+  }
+
+  function renderDeviceInfo() {
+    const phone = env.device === 'phone';
+    const where = env.display === 'app'
+      ? (phone ? 'opened from your home screen' : 'running as an installed app')
+      : (isSite ? 'open in a browser tab' : 'open inside Claude');
+    let text = (phone ? 'Phone' : 'Computer') + ', ' + where + '. ';
+    if (env.display === 'app') {
+      text += 'You are all set.';
+      if (env.ios) text += ' Bets saved here are kept separately from Safari, so keep using the home-screen app.';
+    } else if (isSite && phone) {
+      text += 'Add it to your home screen to open it like an app. ' + installSteps();
+    } else if (isSite && installPrompt) {
+      text += 'You can install it as an app on this computer.';
+    } else {
+      text += phone ? 'Using the phone layout.' : 'Using the full layout.';
+    }
+    $('#device-info').textContent = text;
+    $('#device-actions').hidden = !installPrompt;
+
+    const banner = $('#install-banner');
+    const steps = installSteps();
+    banner.hidden = !(isSite && phone && env.display === 'browser' && steps && !installDismissed());
+    $('#install-steps').textContent = steps;
+    $('#install-btn').hidden = !installPrompt;
+  }
+
+  async function promptInstall() {
+    if (!installPrompt) return;
+    const p = installPrompt;
+    installPrompt = null;
+    try {
+      p.prompt();
+      const choice = await p.userChoice;
+      if (choice && choice.outcome === 'accepted') toast('Installing Bet-Trakt.');
+    } catch (e) { /* prompt can only be used once */ }
+    renderDeviceInfo();
+  }
+
+  function wireInstall() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault(); // show our own Install button instead of the browser's mini-bar
+      installPrompt = e;
+      renderDeviceInfo();
+    });
+    window.addEventListener('appinstalled', () => {
+      installPrompt = null;
+      toast('Bet-Trakt is on your home screen.');
+      renderDeviceInfo();
+    });
+    $('#install-btn').addEventListener('click', promptInstall);
+    $('#install-btn-2').addEventListener('click', promptInstall);
+    $('#install-dismiss').addEventListener('click', () => {
+      try { localStorage.setItem(INSTALL_DISMISS_KEY, '1'); } catch (e) { /* ignore */ }
+      $('#install-banner').hidden = true;
+    });
+  }
+
+  function registerServiceWorker() {
+    if (!isSite || !('serviceWorker' in navigator)) return;
+    const secure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!secure) return;
+    navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
+    // Ask the browser not to clear saved bets under storage pressure (granted silently for installed apps).
+    if (env.display === 'app' && navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+  }
 
   /* ---------------- Tabs ---------------- */
 
@@ -577,24 +678,47 @@
       ? list.length + ' bet' + (list.length === 1 ? '' : 's') + ' · ' + money(s.profit, true) + ' · ' + units(s.units, true) + ' · ROI ' + pct(s.roi, true)
       : '';
     const table = $('#bets-table');
-    if (!state.bets.length) {
-      table.innerHTML = '<tbody><tr><td class="empty">No bets yet. Add your first bet above, or load sample bets in Settings.</td></tr></tbody>';
-      return;
-    }
-    if (!list.length) {
-      table.innerHTML = '<tbody><tr><td class="empty">No bets match these filters.</td></tr></tbody>';
+    const cards = $('#bets-list');
+    const empty = !state.bets.length ? 'No bets yet. Add your first bet above.' : !list.length ? 'No bets match these filters.' : '';
+    if (empty) {
+      table.innerHTML = env.device === 'phone' ? '' : '<tbody><tr><td class="empty">' + empty + '</td></tr></tbody>';
+      cards.innerHTML = env.device === 'phone' ? '<div class="empty">' + empty + '</div>' : '';
       return;
     }
     const fmt = state.settings.oddsFormat;
+    const settleButtons = (b) => b.status === 'pending'
+      ? '<button class="btn small" data-act="won" data-id="' + b.id + '" title="Mark won">W</button>' +
+        '<button class="btn small" data-act="lost" data-id="' + b.id + '" title="Mark lost">L</button>' +
+        '<button class="btn small" data-act="push" data-id="' + b.id + '" title="Mark push">P</button>'
+      : '';
+    const editButtons = (b) => '<button class="btn small" data-act="edit" data-id="' + b.id + '">Edit</button>' +
+      '<button class="btn small danger" data-act="delete" data-id="' + b.id + '" aria-label="Delete bet">✕</button>';
+    const plText = (b) => b.status === 'pending'
+      ? '<span style="color:var(--muted)">to win ' + money(Number(b.stake) * (Number(b.odds) - 1)) + '</span>'
+      : money(C.betProfit(b), true);
+    const statusPill = (b) => '<span class="status ' + b.status + '">' + (b.status === 'cashout' ? 'Cashed out' : b.status) + '</span>';
+
+    if (env.device === 'phone') {
+      // Phone: one card per bet instead of a wide table.
+      table.innerHTML = '';
+      cards.innerHTML = list.map((b) => {
+        const meta = [fmtDate(b.date), b.sport, b.book, C.formatOdds(Number(b.odds), fmt)].filter(Boolean).map(esc).join(' · ');
+        return '<article class="bet-card">' +
+          '<div class="bc-top"><div class="bc-event">' + esc(b.event) +
+            (b.selection || b.type ? '<div class="sel">' + esc([b.selection, b.type].filter(Boolean).join(' · ')) + '</div>' : '') +
+          '</div><div class="bc-pl ' + tone(C.betProfit(b)) + '">' + plText(b) + '</div></div>' +
+          '<div class="bc-meta">' + meta + '</div>' +
+          '<div class="bc-foot">' + statusPill(b) + '<span class="bc-stake">' + money(Number(b.stake)) + ' · ' + units(Number(b.units)) + '</span>' +
+            '<div class="row-actions">' + settleButtons(b) + editButtons(b) + '</div></div>' +
+        '</article>';
+      }).join('');
+      return;
+    }
+    cards.innerHTML = '';
     table.innerHTML =
       '<thead><tr><th>Date</th><th>Event</th><th>Sport</th><th>Book</th><th class="num">Odds</th><th class="num">Stake</th><th>Result</th><th class="num">P/L</th><th class="num"><span class="visually-hidden">Actions</span></th></tr></thead><tbody>' +
       list.map((b) => {
         const pl = C.betProfit(b);
-        const settle = b.status === 'pending'
-          ? '<button class="btn small" data-act="won" data-id="' + b.id + '" title="Mark won">W</button>' +
-            '<button class="btn small" data-act="lost" data-id="' + b.id + '" title="Mark lost">L</button>' +
-            '<button class="btn small" data-act="push" data-id="' + b.id + '" title="Mark push">P</button>'
-          : '';
         return '<tr>' +
           '<td>' + esc(fmtDate(b.date)) + '</td>' +
           '<td class="event">' + esc(b.event) + (b.selection ? '<div class="sel">' + esc(b.selection) + (b.type ? ' · ' + esc(b.type) : '') + '</div>' : (b.type ? '<div class="sel">' + esc(b.type) + '</div>' : '')) + '</td>' +
@@ -602,12 +726,9 @@
           '<td>' + (b.book ? esc(b.book) : '<span style="color:var(--muted)">—</span>') + '</td>' +
           '<td class="num">' + C.formatOdds(Number(b.odds), fmt) + '</td>' +
           '<td class="num">' + money(Number(b.stake)) + '<div class="sel" style="color:var(--muted);font-size:12px">' + units(Number(b.units)) + '</div></td>' +
-          '<td><span class="status ' + b.status + '">' + (b.status === 'cashout' ? 'Cashed out' : b.status) + '</span></td>' +
-          '<td class="num ' + tone(pl) + '">' + (b.status === 'pending' ? '<span style="color:var(--muted)">to win ' + money(Number(b.stake) * (Number(b.odds) - 1)) + '</span>' : money(pl, true)) + '</td>' +
-          '<td><div class="row-actions">' + settle +
-            '<button class="btn small" data-act="edit" data-id="' + b.id + '">Edit</button>' +
-            '<button class="btn small danger" data-act="delete" data-id="' + b.id + '" aria-label="Delete bet">✕</button>' +
-          '</div></td></tr>';
+          '<td>' + statusPill(b) + '</td>' +
+          '<td class="num ' + tone(pl) + '">' + plText(b) + '</td>' +
+          '<td><div class="row-actions">' + settleButtons(b) + editButtons(b) + '</div></td></tr>';
       }).join('') + '</tbody>';
   }
 
@@ -883,46 +1004,6 @@
     reader.readAsText(file);
   }
 
-  function sampleBets() {
-    // Deterministic pseudo-random sample so the demo looks the same every time.
-    let seed = 7;
-    const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-    const picks = [
-      ['NFL', 'Spread', 'Chiefs vs Bills', 'Chiefs -2.5', -110],
-      ['NFL', 'Total', 'Eagles vs Cowboys', 'Over 47.5', -105],
-      ['NBA', 'Moneyline', 'Celtics vs Knicks', 'Knicks ML', 145],
-      ['NBA', 'Spread', 'Nuggets vs Suns', 'Nuggets -4', -110],
-      ['NBA', 'Prop', 'Lakers vs Warriors', 'Curry o4.5 threes', 120],
-      ['NHL', 'Moneyline', 'Rangers vs Bruins', 'Bruins ML', -125],
-      ['NCAAF', 'Spread', 'Georgia vs Alabama', 'Alabama +6.5', -110],
-      ['Soccer', 'Moneyline', 'Arsenal vs Chelsea', 'Arsenal', 110],
-      ['NFL', 'Parlay', '3-leg parlay', 'Ravens / 49ers / Lions ML', 260],
-      ['NBA', 'Total', 'Bucks vs Heat', 'Under 221.5', -110],
-    ];
-    const books = BOOKS;
-    const out = [];
-    const unit = C.unitSize(state.settings, state.settings.startingBankroll);
-    const start = new Date();
-    start.setDate(start.getDate() - 60);
-    for (let i = 0; i < 42; i++) {
-      const p = picks[Math.floor(rnd() * picks.length)];
-      const d = new Date(start);
-      d.setDate(start.getDate() + Math.floor(i * 1.4));
-      const conf = 1 + Math.floor(rnd() * 4);
-      const u = C.CONFIDENCE_UNITS[conf];
-      const odds = C.americanToDecimal(p[4]);
-      const winChance = Math.min(0.8, 1 / odds + 0.015);
-      const r = rnd();
-      const status = i >= 39 ? 'pending' : r < 0.04 ? 'push' : r < 0.04 + winChance * 0.96 ? 'won' : 'lost';
-      out.push({
-        id: uid(), createdAt: Date.now() + i, date: d.toISOString().slice(0, 10),
-        sport: p[0], type: p[1], event: p[2], selection: p[3], book: books[Math.floor(rnd() * books.length)],
-        odds, stake: C.round(u * unit, 2), units: u, status, cashout: null, confidence: conf, winProb: null, notes: 'Sample bet', sample: true,
-      });
-    }
-    return out;
-  }
-
   /* ---------------- Wire up ---------------- */
 
   function renderDemoBanner() {
@@ -967,7 +1048,7 @@
     $('#cancel-edit').addEventListener('click', resetForm);
     $('#reco').addEventListener('click', (e) => { if (e.target.closest('[data-use-reco]')) useReco(); });
 
-    $('#bets-table').addEventListener('click', (e) => {
+    const onBetAction = (e) => {
       const btn = e.target.closest('button[data-act]');
       if (!btn) return;
       const bet = state.bets.find((b) => b.id === btn.dataset.id);
@@ -990,7 +1071,9 @@
       }
       save();
       renderAll();
-    });
+    };
+    $('#bets-table').addEventListener('click', onBetAction);
+    $('#bets-list').addEventListener('click', onBetAction);
 
     ['#filter-text', '#filter-status', '#filter-sport', '#filter-book'].forEach((s) => $(s).addEventListener('input', renderBetsTable));
 
@@ -1011,14 +1094,6 @@
     $('#import-json').addEventListener('change', (e) => {
       if (e.target.files[0]) importBackup(e.target.files[0]);
       e.target.value = '';
-    });
-    $('#load-sample').addEventListener('click', async () => {
-      if (state.bets.some((b) => b.sample)) return toast('Sample bets are already loaded.');
-      if (state.bets.length && !(await askConfirm('Add 42 sample bets alongside your ' + state.bets.length + ' bets? You can remove them in one click later.', 'Add samples'))) return;
-      state.bets = state.bets.concat(sampleBets());
-      save();
-      renderAll();
-      toast('Loaded 42 sample bets.');
     });
     $('#clear-all').addEventListener('click', async () => {
       if (!state.bets.length) return toast('No bets to delete.');
@@ -1042,13 +1117,25 @@
     let resizeTimer;
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(renderCharts, 120);
+      resizeTimer = setTimeout(() => {
+        const before = env.device + env.display;
+        detectEnv();
+        if (env.device + env.display !== before) { renderBetsTable(); renderDeviceInfo(); }
+        renderCharts();
+      }, 120);
     });
+    ['(display-mode: standalone)', '(display-mode: fullscreen)'].forEach((q) => {
+      const mq = window.matchMedia && window.matchMedia(q);
+      if (mq && mq.addEventListener) mq.addEventListener('change', () => { detectEnv(); renderDeviceInfo(); });
+    });
+    wireInstall();
 
     fillSettings();
     resetForm();
     renderAll();
     renderStorageNote();
+    renderDeviceInfo();
+    registerServiceWorker();
     let tab = 'dashboard';
     try { tab = sessionStorage.getItem('bettrakt:tab') || tab; } catch (e) { /* ignore */ }
     if (!state.settings.configured && !state.bets.length) tab = 'settings';

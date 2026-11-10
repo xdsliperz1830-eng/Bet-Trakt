@@ -266,10 +266,74 @@ table.data tbody tr:hover { background: var(--surface-2); }
 
 @media (max-width: 640px) {
   .stat .value { font-size: 20px; }
-  .header-bankroll { display: none; }
-  .tabs { width: 100%; }
-  .tab { flex: 1; }
 }
+
+/* ---------- Tab icons (shown in the phone tab bar) ---------- */
+.tab svg { display: none; width: 22px; height: 22px; }
+
+/* ---------- Phone mode: html[data-device="phone"], set by js/app.js ---------- */
+/* backdrop-filter would trap the fixed tab bar inside the header, so phones get a solid header */
+html[data-device="phone"] .app-header { backdrop-filter: none; background: var(--page); }
+html[data-device="phone"] .app-header .bar { flex-wrap: nowrap; padding-block: 10px; }
+html[data-device="phone"] .header-bankroll { display: block; font-size: 12px; }
+html[data-device="phone"] .header-bankroll strong { font-size: 14px; }
+html[data-device="phone"] .tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; gap: 0;
+  background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding: 4px max(8px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+}
+html[data-device="phone"] .tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 11px; padding: 6px 4px; min-height: 52px; border-radius: 10px;
+}
+html[data-device="phone"] .tab svg { display: block; }
+html[data-device="phone"] .tab[aria-selected="true"] { background: transparent; color: var(--accent); }
+html[data-device="phone"] .tab:hover { background: transparent; }
+html[data-device="phone"] main { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+html[data-device="phone"] .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+html[data-device="phone"] .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+html[data-device="phone"] .grid-2 { grid-template-columns: minmax(0, 1fr); }
+/* 16px inputs stop iOS from zooming in when a field is focused */
+html[data-device="phone"] input, html[data-device="phone"] select, html[data-device="phone"] textarea { font-size: 16px; min-height: 44px; }
+html[data-device="phone"] .btn { min-height: 44px; }
+html[data-device="phone"] .btn.small { min-height: 36px; min-width: 36px; }
+html[data-device="phone"] .segmented button { min-height: 40px; }
+html[data-device="phone"] .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html[data-device="phone"] .form-grid .field:has(#f-event),
+html[data-device="phone"] .form-grid .field:has(#f-selection),
+html[data-device="phone"] .form-grid .field:has(#confidence),
+html[data-device="phone"] .form-grid .field.wide { grid-column: 1 / -1; }
+html[data-device="phone"] #confidence { display: flex; }
+html[data-device="phone"] #confidence button { flex: 1; }
+
+/* Opened from the home screen: no browser bar, so pad the top for the status bar on the site build */
+html[data-host="site"][data-display="app"] body { padding-top: env(safe-area-inset-top, 0px); }
+
+/* ---------- Bet cards (phone) ---------- */
+.bet-cards:empty { display: none; }
+.bet-card { padding: 12px 0; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
+.bet-card:last-child { border-bottom: 0; }
+.bc-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.bc-event { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.bc-event .sel { font-weight: 400; color: var(--text-2); font-size: 13px; }
+.bc-pl { font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bc-meta { font-size: 13px; color: var(--muted); }
+.bc-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bc-stake { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.bc-foot .row-actions { margin-left: auto; }
+html[data-device="phone"] #bets-table:empty { display: none; }
+
+/* ---------- Install banner (phone, in the browser) ---------- */
+.install-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  padding: 12px 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.install-icon { width: 40px; height: 40px; flex: none; }
+.install-text { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text-2); min-width: 0; }
+.install-text strong { color: var(--text); font-size: 14px; }
+.install-actions { display: flex; gap: 8px; }
 
 /* ---------- Sample-data banner ---------- */
 .demo-banner {

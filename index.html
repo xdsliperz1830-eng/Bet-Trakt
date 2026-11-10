@@ -1,10 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-host="site">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Bet-Trakt</title>
   <meta name="description" content="Track your bets, see your profit and loss, and get recommended stake sizes in units.">
+  <!-- Installable app: home-screen shortcut on phones, offline support -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Bet-Trakt">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,19 +23,31 @@
     <div class="bar">
       <div class="brand">Bet<span>-</span>Trakt</div>
       <nav class="tabs" role="tablist" aria-label="Sections">
-        <button class="tab" role="tab" data-tab="dashboard" aria-selected="true">Dashboard</button>
-        <button class="tab" role="tab" data-tab="bets" aria-selected="false">Bets</button>
-        <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+        <button class="tab" role="tab" data-tab="dashboard" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Dashboard</span></button>
+        <button class="tab" role="tab" data-tab="bets" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16l-3.5-2-3.5 2-3.5-2L5 20zM9 9h6M9 13h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg><span>Bets</span></button>
+        <button class="tab" role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Settings</span></button>
       </nav>
       <div class="header-bankroll" id="header-bankroll"></div>
     </div>
   </header>
 
   <main>
+    <div class="install-banner" id="install-banner" hidden>
+      <svg class="install-icon" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#2a78d6"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="install-text">
+        <strong>Add Bet-Trakt to your home screen</strong>
+        <span id="install-steps"></span>
+      </div>
+      <div class="install-actions">
+        <button type="button" class="btn primary" id="install-btn" hidden>Install</button>
+        <button type="button" class="btn" id="install-dismiss">Not now</button>
+      </div>
+    </div>
+
     <!-- ================= Dashboard ================= -->
     <section class="view" id="view-dashboard" role="tabpanel">
       <div class="demo-banner" hidden>
-        <p><strong>You're looking at <span data-sample-count>42</span> sample bets.</strong> They show how the tracker works. Remove them when you're ready to track your own.</p>
+        <p><strong>Your tracker still has <span data-sample-count>42</span> sample bets.</strong> Remove them so your numbers only include your own bets.</p>
         <button type="button" class="btn" data-remove-samples>Remove samples</button>
       </div>
       <div class="stats" id="stats"></div>
@@ -74,7 +97,7 @@
     <!-- ================= Bets ================= -->
     <section class="view" id="view-bets" role="tabpanel" hidden>
       <div class="demo-banner" hidden>
-        <p><strong>You're looking at <span data-sample-count>42</span> sample bets.</strong> They show how the tracker works. Remove them when you're ready to track your own.</p>
+        <p><strong>Your tracker still has <span data-sample-count>42</span> sample bets.</strong> Remove them so your numbers only include your own bets.</p>
         <button type="button" class="btn" data-remove-samples>Remove samples</button>
       </div>
       <div class="card">
@@ -198,6 +221,7 @@
         <div class="table-wrap">
           <table class="data" id="bets-table"></table>
         </div>
+        <div class="bet-cards" id="bets-list"></div>
       </div>
     </section>
 
@@ -271,8 +295,14 @@
               <input type="file" id="import-json" accept="application/json,.json" class="visually-hidden">
             </div>
             <div class="actions">
-              <button type="button" class="btn" id="load-sample">Load sample bets</button>
               <button type="button" class="btn danger" id="clear-all">Delete all bets</button>
+            </div>
+          </div>
+          <div class="card">
+            <h2>This device</h2>
+            <p class="sub" id="device-info" style="margin:0"></p>
+            <div class="actions" id="device-actions" hidden>
+              <button type="button" class="btn primary" id="install-btn-2">Install app</button>
             </div>
           </div>
           <div class="card">

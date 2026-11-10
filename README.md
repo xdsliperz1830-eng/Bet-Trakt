@@ -12,7 +12,33 @@ Open `index.html` in a browser. You can also serve the folder:
 npm start            # python3 -m http.server 8000, then open http://localhost:8000
 ```
 
-On first launch you land on **Settings**. Enter your starting bankroll and pick a unit size (1–3% is typical). To try the app before entering real bets, use **Load sample bets**.
+The app starts empty. On first launch you land on **Settings**: enter your starting bankroll and pick a unit size (1–3% is typical).
+
+## Use it on your phone (GitHub Pages)
+
+The repo is a ready-to-serve static site, with a web app manifest, icons and an offline service worker.
+
+1. On GitHub, open **Settings → Pages**.
+2. Under **Build and deployment**, set **Source** to **Deploy from a branch**, pick the branch with this code and the **/ (root)** folder, then **Save**.
+3. After a minute or two the site is live at `https://<your-username>.github.io/Bet-Trakt/`.
+4. Open that link on your phone and add it to your home screen:
+   - **iPhone (Safari):** tap **Share**, then **Add to Home Screen**.
+   - **Android (Chrome):** tap **Install** in the app's banner, or open the **⋮** menu and choose **Add to Home screen** or **Install app**.
+
+Opened from the home screen, it runs full screen like an app and works offline.
+
+Your bets are saved on the device, in that browser's storage. On iPhone, the home-screen app keeps its own copy, separate from Safari, so pick one and stick with it. Use **Download backup** and **Restore backup** in Settings to move bets between devices.
+
+### Phone and browser detection
+
+On load (and whenever the window changes), the app sets two attributes on `<html>`:
+
+| Attribute | Values | Effect |
+|---|---|---|
+| `data-device` | `phone` / `desktop` | Phones get a bottom tab bar, bet cards instead of a wide table, larger tap targets and 16px inputs (stops iOS zooming in) |
+| `data-display` | `app` / `browser` | `app` means it was opened from the home screen or installed. In a phone browser, an "Add to home screen" banner shows steps for iPhone or Android, or an **Install** button where the browser supports it |
+
+**Settings → This device** shows what was detected.
 
 ## Features
 
@@ -64,6 +90,8 @@ index.html        UI markup
 styles.css        Styles (light and dark)
 js/calc.js        Pure betting math: odds, P&L, stats, unit sizing, Kelly, CSV
 js/app.js         UI, storage, charts
+sw.js             Service worker (offline support). Bump CACHE when you change files.
+manifest.webmanifest, icons/   Home-screen app name and icons
 tests/            Unit tests for js/calc.js
 scripts/          build-artifact.js bundles the app into one HTML file
 ```
