@@ -3,12 +3,13 @@
  * Network first (so updates show up straight away), cached copy when offline.
  * Bets are not stored here; they live in the page's localStorage.
  */
-const CACHE = 'bettrakt-v4';
+const CACHE = 'bettrakt-v5';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './js/calc.js',
+  './js/parse.js',
   './js/app.js',
   './manifest.webmanifest',
   './icons/favicon.svg',

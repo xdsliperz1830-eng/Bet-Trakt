@@ -630,3 +630,52 @@ input.switch:checked { background: linear-gradient(135deg, var(--accent), var(--
 input.switch:checked::after { transform: translateX(20px); }
 input.switch:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
 html[data-device="phone"] input.switch { min-height: 0; }
+
+/* ---------- Quick add ---------- */
+.quick-add {
+  margin-bottom: 16px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, transparent), color-mix(in srgb, var(--accent-2) 6%, transparent)),
+    var(--surface);
+}
+.quick-add.dragging { border-style: dashed; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.qa-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.qa-head .sub { margin: 0; }
+.qa-badge {
+  flex: none; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 6px 16px rgba(47, 107, 255, 0.35);
+}
+.qa-badge svg { width: 20px; height: 20px; }
+#qa-text { min-height: 84px; }
+.qa-actions { margin-top: 10px; }
+.qa-status {
+  display: flex; align-items: center; gap: 10px; margin: 12px 0 0; font-size: 13px; color: var(--text-2);
+}
+.qa-status.busy::before {
+  content: ""; width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 2.5px solid var(--accent-soft); border-top-color: var(--accent); animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.drafts-title { margin: 16px 0 8px; font-weight: 700; font-size: 14px; }
+.draft {
+  display: grid; gap: 10px; padding: 14px; margin-bottom: 10px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border-left: 4px solid var(--accent); animation: pop-in 240ms var(--ease);
+}
+.draft.won { border-left-color: var(--win); }
+.draft.lost { border-left-color: var(--loss); }
+.draft-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.draft-grid .wide { grid-column: 1 / -1; }
+.draft .field label { font-size: 11px; }
+.draft input, .draft select { min-height: 40px; padding: 7px 10px; background: var(--surface); }
+.draft .bad input, .draft .bad select { border-color: var(--loss); box-shadow: 0 0 0 3px var(--loss-soft); }
+.draft-odds { display: flex; gap: 6px; }
+.draft-odds select { width: 64px; flex: none; }
+.draft-odds input { flex: 1; min-width: 0; }
+.draft-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.draft-top strong { font-size: 14px; }
+.draft-warn { font-size: 12px; color: var(--bad-text); }
+.draft-note { font-size: 12px; color: var(--muted); }
+html[data-device="phone"] .draft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html[data-device="phone"] .draft input, html[data-device="phone"] .draft select { min-height: 44px; }

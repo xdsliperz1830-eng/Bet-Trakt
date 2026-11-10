@@ -42,6 +42,12 @@ On load (and whenever the window changes), the app sets two attributes on `<html
 
 ## Features
 
+**Quick add**
+- Type bets the way you'd say them, one per line: `$25 on Chiefs ML -110 at FanDuel, won` or `3 leg parlay +596, $10 on Sleeper`
+- Or add, paste or drop a screenshot of a bet slip
+- Every bet it reads shows up as an editable card first; nothing is saved until you tap **Add**
+- On the claude.ai page, Claude reads the text and screenshots. On GitHub Pages, text is read by `js/parse.js` and screenshots by on-device OCR ([Tesseract.js](https://github.com/naptha/tesseract.js), about 4 MB, downloaded the first time you use it and then cached)
+
 **A short bet form**
 - Date, sportsbook (FanDuel, DraftKings, Sleeper, Chalkboard), **Single or Parlay** (with number of legs), odds, stake and result
 - Optional fields you can switch on in **Settings → Bet form**: confidence (on by default), sport, pick, your win probability and notes
@@ -93,10 +99,11 @@ The build inlines the CSS and JS into one page. When it runs as an artifact with
 index.html        UI markup
 styles.css        Styles (light and dark)
 js/calc.js        Pure betting math: odds, P&L, stats, unit sizing, Kelly, CSV
+js/parse.js       Quick add: reads typed bets and bet-slip text
 js/app.js         UI, storage, charts
 sw.js             Service worker (offline support). Bump CACHE when you change files.
 manifest.webmanifest, icons/   Home-screen app name and icons
-tests/            Unit tests for js/calc.js
+tests/            Unit tests for js/calc.js and js/parse.js
 scripts/          build-artifact.js bundles the app into one HTML file
 ```
 

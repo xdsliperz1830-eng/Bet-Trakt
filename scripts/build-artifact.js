@@ -32,6 +32,7 @@ const page = [
   '<style>\n' + read('styles.css') + '\n</style>',
   body,
   inlineScript('js/calc.js'),
+  inlineScript('js/parse.js'),
   inlineScript('js/app.js'),
 ].join('\n') + '\n';
 

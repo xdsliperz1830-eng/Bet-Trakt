@@ -1190,6 +1190,408 @@
     reader.readAsText(file);
   }
 
+  /* ---------------- Quick add: typed text or a bet-slip screenshot ---------------- */
+
+  // Claude reads text and screenshots when the page runs as a claude.ai artifact
+  // (the `sample` capability). Elsewhere, typed text is read by js/parse.js and
+  // screenshots by on-device OCR (Tesseract.js, downloaded on first use).
+  const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+  let drafts = [];
+  let claudeSample;      // undefined: not checked yet; null: not available
+  let claudeImages = false;
+
+  async function getClaude() {
+    if (claudeSample !== undefined) return claudeSample;
+    claudeSample = null;
+    const api = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
+    if (!api) return null;
+    try {
+      const s = await api.use('sample');
+      if (s) {
+        claudeSample = s;
+        const lim = await s.limits().catch(() => null);
+        claudeImages = !!(lim && lim.images);
+      }
+    } catch (e) { claudeSample = null; }
+    return claudeSample;
+  }
+
+  function qaStatus(msg, busy) {
+    const el = $('#qa-status');
+    el.hidden = !msg;
+    el.textContent = msg || '';
+    el.classList.toggle('busy', !!busy);
+    $('#qa-read').disabled = !!busy;
+  }
+
+  function claudePrompt(text, withImage) {
+    return [
+      'You read sports bets and return them as JSON for a personal bet tracker.',
+      "Today's date is " + today() + '. The user bets at FanDuel, DraftKings, Sleeper and Chalkboard.',
+      withImage
+        ? 'The attached image is a screenshot from a sportsbook app: a bet slip, or a list of placed or settled bets.'
+        : 'The text below is how the user describes one or more bets.',
+      'Find every separate bet. A parlay is ONE bet with several legs. Do not invent bets or numbers.',
+      'Return ONLY a JSON array. Each item:',
+      '{"format":"Single"|"Parlay","legs":number|null,"description":string,"book":"FanDuel"|"DraftKings"|"Sleeper"|"Chalkboard"|null,' +
+        '"american_odds":number|null,"stake":number|null,"units":number|null,"to_win":number|null,' +
+        '"status":"pending"|"won"|"lost"|"push"|"void"|"cashout","cashout":number|null,"date":"YYYY-MM-DD"|null}',
+      'Rules: description is short, like "Chiefs ML" or "Chiefs / Bills / Lions" (team or player names, no odds).',
+      'american_odds is the price of the whole bet (for a parlay, the combined parlay odds), negative for favorites.',
+      'stake is the dollar amount risked. If the stake is given in units (like "2u"), put that number in units and leave stake null.',
+      'to_win is the profit, not including the stake; if only a total payout is shown, subtract the stake.',
+      'status is "pending" unless the bet is clearly settled. cashout is the amount received for a cashed-out bet.',
+      'Use null for anything not shown.',
+      text ? 'User text (between the --- lines):\n---\n' + text.slice(0, 4000) + '\n---' : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  /** Claude's answer is data from outside the page: keep only well-formed values. */
+  function draftsFromClaude(out) {
+    const list = Array.isArray(out) ? out : out && Array.isArray(out.bets) ? out.bets : out ? [out] : [];
+    return list.filter((x) => x && typeof x === 'object').slice(0, 25).map((x) => {
+      const am = Number(x.american_odds);
+      let odds = Math.abs(am) >= 100 ? C.americanToDecimal(am) : NaN;
+      const stake = Number(x.stake) > 0 ? C.round(Number(x.stake), 2) : null;
+      const toWin = Number(x.to_win) > 0 ? Number(x.to_win) : null;
+      if (stake && toWin) odds = 1 + toWin / stake;
+      const status = C.STATUSES.includes(x.status) ? x.status : 'pending';
+      const format = x.format === 'Parlay' ? 'Parlay' : 'Single';
+      const unitsGiven = !stake && Number(x.units) > 0 ? Number(x.units) : null;
+      const warnings = [];
+      if (!(odds > 1)) warnings.push('Odds not found.');
+      if (!stake && !unitsGiven) warnings.push('Stake not found.');
+      return {
+        format,
+        legs: format === 'Parlay' && Number(x.legs) >= 2 ? Math.round(Number(x.legs)) : null,
+        event: String(x.description || '').slice(0, 80),
+        book: BOOKS.includes(x.book) ? x.book : null,
+        odds: odds > 1 ? C.round(odds, 4) : null,
+        stake,
+        units: unitsGiven,
+        status,
+        cashout: status === 'cashout' && Number(x.cashout) >= 0 ? Number(x.cashout) : null,
+        date: /^\d{4}-\d{2}-\d{2}$/.test(String(x.date || '')) ? x.date : null,
+        warnings,
+      };
+    });
+  }
+
+  function claudeError(e) {
+    const code = e && e.code;
+    if (code === 'not_granted') return 'Claude access is turned off for this page.';
+    if (code === 'rate_limited') return 'Claude is busy or you have hit a usage limit. Try again in a bit.';
+    if (code === 'image_rejected') return 'That image type could not be read. Try a PNG or JPG screenshot.';
+    if (code === 'invalid_json' || code === 'empty_completion') return 'Claude could not find a bet in that.';
+    return 'Claude could not read that right now.';
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      if (window.Tesseract) return resolve();
+      const el = document.createElement('script');
+      el.src = src;
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error('Could not load ' + src));
+      document.head.appendChild(el);
+    });
+  }
+
+  /** Grayscale, upscale small images, and flip dark-mode screenshots to dark-on-light for OCR. */
+  async function prepImage(file) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(3, Math.max(1, 1400 / bmp.width));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale);
+    c.height = Math.round(bmp.height * scale);
+    const g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    const img = g.getImageData(0, 0, c.width, c.height);
+    const d = img.data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const dark = sum / (d.length / 4) < 128;
+    for (let i = 0; i < d.length; i += 4) {
+      let y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (dark) y = 255 - y;
+      y = Math.max(0, Math.min(255, (y - 128) * 1.5 + 128));
+      d[i] = d[i + 1] = d[i + 2] = y;
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+
+  async function ocrImage(file, onProgress) {
+    await loadScript(TESSERACT_URL);
+    const canvas = await prepImage(file);
+    const worker = await window.Tesseract.createWorker('eng', 1, {
+      logger: (m) => { if (m.status === 'recognizing text' && onProgress) onProgress(m.progress || 0); },
+    });
+    try {
+      const { data } = await worker.recognize(canvas);
+      return data.text || '';
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  async function readQuickText() {
+    const text = $('#qa-text').value.trim();
+    if (!text) {
+      toast('Type a bet first, like "$25 on Chiefs -110 at FanDuel".', 'error');
+      $('#qa-text').focus();
+      return;
+    }
+    const sample = await getClaude();
+    if (sample) {
+      qaStatus('Claude is reading your bets…', true);
+      try {
+        const out = await sample.json(claudePrompt(text, false), { modelTier: 'quick' });
+        setDrafts(draftsFromClaude(out));
+        qaStatus(drafts.length ? '' : 'Claude did not find a bet in that. Try adding the odds and the amount.');
+        return;
+      } catch (e) {
+        qaStatus(claudeError(e) + ' Read it on this device instead.');
+      }
+    } else {
+      qaStatus('');
+    }
+    setDrafts(BetParse.parseBets(text, { today: today() }));
+  }
+
+  async function readScreenshot(file) {
+    if (!file || !/^image\//.test(file.type || '')) {
+      toast('That file is not an image. Add a screenshot (PNG or JPG).', 'error');
+      return;
+    }
+    const sample = await getClaude();
+    if (sample && claudeImages) {
+      qaStatus('Claude is reading your screenshot…', true);
+      try {
+        const out = await sample.json(claudePrompt($('#qa-text').value.trim(), true), { images: [file] });
+        setDrafts(draftsFromClaude(out));
+        qaStatus(drafts.length ? '' : 'Claude did not find a bet in that screenshot.');
+      } catch (e) {
+        qaStatus(claudeError(e) + ' You can type the bet instead.');
+      }
+      return;
+    }
+    if (!isSite) {
+      qaStatus('Reading screenshots is not available here. Type the bet instead.');
+      return;
+    }
+    try {
+      qaStatus('Reading your screenshot on this device…', true);
+      const text = await ocrImage(file, (p) => qaStatus('Reading your screenshot on this device… ' + Math.round(p * 100) + '%', true));
+      $('#qa-text').value = text.replace(/\n{3,}/g, '\n\n').trim();
+      setDrafts(BetParse.parseSlip(text, { today: today() }));
+      qaStatus(drafts.length
+        ? 'Read on this device. Check each bet below. The text it read is in the box above if you want to fix it and tap Read bets.'
+        : 'No bet found in that screenshot. Try a closer crop of the bet slip, or type it.');
+    } catch (e) {
+      qaStatus('Could not read the screenshot. The reader downloads the first time you use it, so check your connection, or type the bet instead.');
+    }
+  }
+
+  function defaultBook() {
+    if (form.book.value) return form.book.value;
+    const last = state.bets.slice().sort(C.byDate).pop();
+    return last && last.book ? last.book : '';
+  }
+
+  function setDrafts(list) {
+    drafts = list.map((d) => Object.assign({ id: uid() }, d, { book: d.book || defaultBook() }));
+    renderDrafts();
+  }
+
+  function draftStake(d) {
+    if (d.stake > 0) return d.stake;
+    if (d.units > 0) return C.round(d.units * currentUnit(), 2);
+    return null;
+  }
+
+  function draftCard(d, i) {
+    const decimal = state.settings.oddsFormat === 'decimal';
+    const am = d.odds > 1 ? C.decimalToAmerican(d.odds) : null;
+    const sign = am != null && am > 0 ? '+' : '-';
+    const stake = draftStake(d);
+    const opt = (v, label, cur) => '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const books = ['', ...BOOKS].map((b) => opt(b, b || 'Choose a book', d.book || '')).join('');
+    const statuses = [['pending', 'Pending'], ['won', 'Won'], ['lost', 'Lost'], ['push', 'Push'], ['void', 'Void'], ['cashout', 'Cashed out']]
+      .map(([v, l]) => opt(v, l, d.status)).join('');
+    const oddsField = decimal
+      ? '<input type="text" inputmode="decimal" data-k="oddsDec" value="' + (d.odds > 1 ? d.odds.toFixed(2) : '') + '" placeholder="1.91" aria-label="Odds">'
+      : '<div class="draft-odds"><select data-k="sign" aria-label="Odds sign">' + opt('-', '−', sign) + opt('+', '+', sign) + '</select>' +
+        '<input type="text" inputmode="decimal" data-k="oddsAbs" value="' + (am != null ? Math.abs(am) : '') + '" placeholder="110" aria-label="Odds"></div>';
+    return '<div class="draft ' + d.status + '" data-id="' + d.id + '">' +
+      '<div class="draft-top"><strong>Bet ' + (i + 1) + '</strong>' +
+        '<button type="button" class="btn small danger" data-draft-remove="' + d.id + '" aria-label="Remove this bet">✕</button></div>' +
+      '<div class="draft-grid">' +
+        '<div class="field wide"><label>Bet</label><input type="text" data-k="event" value="' + esc(d.event) + '" placeholder="' + (d.format === 'Parlay' ? 'Parlay' : 'Single bet') + '"></div>' +
+        '<div class="field"><label>Format</label><select data-k="format">' + opt('Single', 'Single', d.format) + opt('Parlay', 'Parlay', d.format) + '</select></div>' +
+        (d.format === 'Parlay' ? '<div class="field"><label>Legs</label><input type="number" inputmode="numeric" min="2" data-k="legs" value="' + (d.legs || '') + '" placeholder="e.g. 3"></div>' : '') +
+        '<div class="field"><label>Sportsbook</label><select data-k="book">' + books + '</select></div>' +
+        '<div class="field' + (d.odds > 1 ? '' : ' bad') + '"><label>Odds</label>' + oddsField + '</div>' +
+        '<div class="field' + (stake > 0 ? '' : ' bad') + '"><label>Stake ($)</label><input type="number" inputmode="decimal" min="0" step="0.01" data-k="stake" value="' + (stake > 0 ? stake.toFixed(2) : '') + '"></div>' +
+        '<div class="field"><label>Result</label><select data-k="status">' + statuses + '</select></div>' +
+        (d.status === 'cashout' ? '<div class="field' + (d.cashout >= 0 && d.cashout !== null ? '' : ' bad') + '"><label>Cash-out ($)</label><input type="number" inputmode="decimal" min="0" step="0.01" data-k="cashout" value="' + (d.cashout != null ? d.cashout : '') + '"></div>' : '') +
+        '<div class="field"><label>Date</label><input type="date" data-k="date" value="' + esc(d.date || today()) + '"></div>' +
+      '</div>' +
+      (d.units > 0 && !(d.stake > 0) ? '<div class="draft-note">' + units(d.units) + ' at today\'s unit of ' + money(currentUnit()) + '.</div>' : '') +
+      (d.warnings && d.warnings.length ? '<div class="draft-warn">' + d.warnings.map(esc).join(' ') + '</div>' : '') +
+    '</div>';
+  }
+
+  function renderDrafts() {
+    const host = $('#qa-drafts');
+    if (!drafts.length) { host.innerHTML = ''; return; }
+    host.innerHTML =
+      '<div class="drafts-title">Found ' + drafts.length + ' bet' + (drafts.length === 1 ? '' : 's') + '. Check the details, then add.</div>' +
+      drafts.map(draftCard).join('') +
+      '<div class="actions"><button type="button" class="btn primary" id="qa-add">Add ' + (drafts.length === 1 ? 'bet' : drafts.length + ' bets') + '</button>' +
+      '<button type="button" class="btn" id="qa-clear">Clear</button></div>';
+  }
+
+  /** Copy an edited draft field back into its draft. */
+  function onDraftInput(e) {
+    const el = e.target;
+    const card = el.closest('.draft');
+    if (!card || !el.dataset.k) return;
+    const d = drafts.find((x) => x.id === card.dataset.id);
+    if (!d) return;
+    const k = el.dataset.k;
+    const v = el.value.trim();
+    if (k === 'sign' || k === 'oddsAbs') {
+      const sign = card.querySelector('[data-k="sign"]').value;
+      const abs = card.querySelector('[data-k="oddsAbs"]').value.trim().replace(/^[+\-−]/, '');
+      const dec = C.parseOdds(sign + abs, 'american');
+      d.odds = dec > 1 ? dec : null;
+    } else if (k === 'oddsDec') {
+      const dec = C.parseOdds(v, 'decimal');
+      d.odds = dec > 1 ? dec : null;
+    } else if (k === 'stake') {
+      d.stake = Number(v) > 0 ? Number(v) : null;
+      d.units = null;
+    } else if (k === 'legs') {
+      d.legs = Number(v) >= 2 ? Math.round(Number(v)) : null;
+    } else if (k === 'cashout') {
+      d.cashout = v === '' ? null : Number(v);
+    } else {
+      d[k] = v;
+    }
+    const field = el.closest('.field');
+    if (field && (k === 'oddsAbs' || k === 'sign' || k === 'oddsDec')) field.classList.toggle('bad', !(d.odds > 1));
+    if (field && k === 'stake') field.classList.toggle('bad', !(d.stake > 0));
+    if (field && k === 'cashout') field.classList.toggle('bad', !(d.cashout >= 0 && d.cashout !== null));
+    // Fields that change the card's layout re-render it
+    if (e.type === 'change' && (k === 'format' || k === 'status')) renderDrafts();
+  }
+
+  function addDrafts() {
+    const unit = currentUnit();
+    const btnRect = $('#qa-add').getBoundingClientRect();
+    const keep = [];
+    let added = 0, wins = 0;
+    for (const d of drafts) {
+      const stake = draftStake(d);
+      const cashoutOk = d.status !== 'cashout' || (d.cashout !== null && d.cashout >= 0);
+      if (!(d.odds > 1) || !(stake > 0) || !cashoutOk) { keep.push(d); continue; }
+      const legs = d.format === 'Parlay' && d.legs >= 2 ? d.legs : null;
+      state.bets.push({
+        id: uid(),
+        createdAt: Date.now() + added,
+        date: d.date || today(),
+        sport: '',
+        type: '',
+        format: d.format === 'Parlay' ? 'Parlay' : 'Single',
+        legs,
+        book: d.book || '',
+        event: d.event || (d.format === 'Parlay' ? (legs ? legs + '-leg parlay' : 'Parlay') : 'Single bet'),
+        selection: '',
+        odds: d.odds,
+        stake: C.round(stake, 2),
+        units: unit > 0 ? C.round(stake / unit, 4) : 0,
+        status: d.status,
+        cashout: d.status === 'cashout' ? Number(d.cashout) : null,
+        confidence: null,
+        winProb: null,
+        notes: '',
+      });
+      added++;
+      if (d.status === 'won') wins++;
+    }
+    drafts = keep;
+    if (added) {
+      save();
+      renderAll();
+      toast('Added ' + added + ' bet' + (added === 1 ? '' : 's') + '.', wins ? 'win' : '');
+      if (wins) celebrate(btnRect.left + btnRect.width / 2, btnRect.top + btnRect.height / 2);
+    }
+    if (keep.length) {
+      renderDrafts();
+      if (!added) toast('Fill in the highlighted odds or stake first.', 'error');
+      qaStatus(keep.length + ' bet' + (keep.length === 1 ? ' needs' : 's need') + ' odds or a stake before it can be added.');
+    } else {
+      $('#qa-text').value = '';
+      renderDrafts();
+      qaStatus('');
+    }
+  }
+
+  async function describeQuickAdd() {
+    const sample = await getClaude();
+    const sub = $('#qa-sub');
+    if (sample) {
+      sub.textContent = claudeImages
+        ? "Type your bets the way you'd say them, or add a screenshot of your bet slip. Claude reads them, and you check each one before it's saved."
+        : "Type your bets the way you'd say them. Claude reads them, and you check each one before it's saved.";
+      $('#qa-shot').hidden = !claudeImages;
+    } else if (!isSite) {
+      sub.textContent = "Type your bets the way you'd say them, and check each one before it's saved.";
+      $('#qa-shot').hidden = true;
+    }
+  }
+
+  function wireQuickAdd() {
+    $('#qa-read').addEventListener('click', readQuickText);
+    $('#qa-text').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); readQuickText(); }
+    });
+    $('#qa-file').addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) readScreenshot(f);
+    });
+    // Paste a screenshot straight into the box
+    $('#qa-text').addEventListener('paste', (e) => {
+      const item = Array.from((e.clipboardData && e.clipboardData.items) || []).find((it) => it.kind === 'file' && /^image\//.test(it.type));
+      if (!item) return;
+      e.preventDefault();
+      readScreenshot(item.getAsFile());
+    });
+    // Or drop one onto the card
+    const card = $('#quick-add');
+    card.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('dragging'); });
+    card.addEventListener('dragleave', () => card.classList.remove('dragging'));
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('dragging');
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) readScreenshot(f);
+    });
+    const host = $('#qa-drafts');
+    host.addEventListener('input', onDraftInput);
+    host.addEventListener('change', onDraftInput);
+    host.addEventListener('click', (e) => {
+      const rm = e.target.closest('[data-draft-remove]');
+      if (rm) { drafts = drafts.filter((d) => d.id !== rm.dataset.draftRemove); renderDrafts(); return; }
+      if (e.target.closest('#qa-add')) addDrafts();
+      if (e.target.closest('#qa-clear')) { drafts = []; renderDrafts(); qaStatus(''); }
+    });
+    describeQuickAdd();
+  }
+
   /* ---------------- Wire up ---------------- */
 
   function renderDemoBanner() {
@@ -1260,10 +1662,10 @@
     });
     $('#fab-add').addEventListener('click', () => {
       showTab('bets');
-      if (!form.id.value) resetForm();
-      form.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
-      setTimeout(() => form.event.focus({ preventScroll: true }), 350);
+      $('#quick-add').scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
+      setTimeout(() => $('#qa-text').focus({ preventScroll: true }), 350);
     });
+    wireQuickAdd();
     $('#reco').addEventListener('click', (e) => { if (e.target.closest('[data-use-reco]')) useReco(); });
 
     const onBetAction = (e) => {
