@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bet-Trakt</title>
+  <meta name="description" content="Track your bets, see your profit and loss, and get recommended stake sizes in units.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="bar">
+      <div class="brand">Bet<span>-</span>Trakt</div>
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button class="tab" role="tab" data-tab="dashboard" aria-selected="true">Dashboard</button>
+        <button class="tab" role="tab" data-tab="bets" aria-selected="false">Bets</button>
+        <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+      </nav>
+      <div class="header-bankroll" id="header-bankroll"></div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= Dashboard ================= -->
+    <section class="view" id="view-dashboard" role="tabpanel">
+      <div class="stats" id="stats"></div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Recommended units</h2>
+          <p class="sub">How much one unit is worth right now, and what to bet at each confidence level.</p>
+          <div id="unit-panel"></div>
+        </div>
+        <div class="card">
+          <h2>Bankroll advice</h2>
+          <p class="sub">Based on your bankroll, unit size and recent results.</p>
+          <ul class="advice" id="advice"></ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <div>
+            <h2>Bankroll over time</h2>
+            <p class="sub">Bankroll after each settled bet. The dashed line is your starting bankroll.</p>
+          </div>
+        </div>
+        <div class="chart" id="bankroll-chart"></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <div>
+            <h2>Profit and loss breakdown</h2>
+            <p class="sub">Where your money is coming from, and where it is going.</p>
+          </div>
+          <div class="segmented" id="breakdown-key" role="group" aria-label="Group by">
+            <button type="button" data-key="sport" aria-pressed="true">Sport</button>
+            <button type="button" data-key="type" aria-pressed="false">Bet type</button>
+            <button type="button" data-key="book" aria-pressed="false">Sportsbook</button>
+          </div>
+        </div>
+        <div class="chart" id="breakdown-chart"></div>
+        <div class="table-wrap" style="margin-top:12px">
+          <table class="data" id="breakdown-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Bets ================= -->
+    <section class="view" id="view-bets" role="tabpanel" hidden>
+      <div class="card">
+        <h2 id="form-title">Add a bet</h2>
+        <p class="sub">Enter the odds, then set your confidence or your own win probability to get a recommended stake.</p>
+        <form id="bet-form" autocomplete="off">
+          <input type="hidden" name="id">
+          <div class="form-grid">
+            <div class="field">
+              <label for="f-date">Date</label>
+              <input type="date" id="f-date" name="date" required>
+            </div>
+            <div class="field">
+              <label for="f-sport">Sport / league</label>
+              <input type="text" id="f-sport" name="sport" list="sport-list" placeholder="NFL">
+              <datalist id="sport-list"></datalist>
+            </div>
+            <div class="field">
+              <label for="f-type">Bet type</label>
+              <input type="text" id="f-type" name="type" list="type-list" placeholder="Spread">
+              <datalist id="type-list">
+                <option value="Moneyline"><option value="Spread"><option value="Total"><option value="Prop">
+                <option value="Parlay"><option value="Teaser"><option value="Future"><option value="Live">
+              </datalist>
+            </div>
+            <div class="field">
+              <label for="f-book">Sportsbook</label>
+              <input type="text" id="f-book" name="book" list="book-list" placeholder="Optional">
+              <datalist id="book-list"></datalist>
+            </div>
+            <div class="field wide">
+              <label for="f-event">Event</label>
+              <input type="text" id="f-event" name="event" placeholder="Chiefs vs Bills" required>
+            </div>
+            <div class="field wide">
+              <label for="f-selection">Pick</label>
+              <input type="text" id="f-selection" name="selection" placeholder="Chiefs -3.5">
+            </div>
+            <div class="field">
+              <label for="f-odds" id="odds-label">Odds (American)</label>
+              <input type="text" id="f-odds" name="odds" inputmode="decimal" placeholder="-110" required>
+              <span class="hint" id="odds-hint">&nbsp;</span>
+            </div>
+            <div class="field">
+              <span class="label">Confidence</span>
+              <div class="segmented" id="confidence" role="group" aria-label="Confidence">
+                <button type="button" data-v="1" aria-pressed="false">1</button>
+                <button type="button" data-v="2" aria-pressed="true">2</button>
+                <button type="button" data-v="3" aria-pressed="false">3</button>
+                <button type="button" data-v="4" aria-pressed="false">4</button>
+                <button type="button" data-v="5" aria-pressed="false">5</button>
+              </div>
+              <span class="hint" id="confidence-hint">&nbsp;</span>
+            </div>
+            <div class="field">
+              <label for="f-winprob">Your win probability %</label>
+              <input type="number" id="f-winprob" name="winProb" min="1" max="99" step="0.1" placeholder="Optional, e.g. 55">
+              <span class="hint">Fill this in to size by Kelly</span>
+            </div>
+            <div class="field">
+              <label for="f-stake">Stake</label>
+              <div class="input-group">
+                <input type="number" id="f-stake" name="stake" min="0" step="0.01" required>
+                <select id="f-stake-mode" aria-label="Stake in dollars or units">
+                  <option value="dollars">$</option>
+                  <option value="units">units</option>
+                </select>
+              </div>
+              <span class="hint" id="stake-hint">&nbsp;</span>
+            </div>
+            <div class="field">
+              <label for="f-status">Result</label>
+              <select id="f-status" name="status">
+                <option value="pending">Pending</option>
+                <option value="won">Won</option>
+                <option value="lost">Lost</option>
+                <option value="push">Push</option>
+                <option value="void">Void / cancelled</option>
+                <option value="cashout">Cashed out</option>
+              </select>
+            </div>
+            <div class="field" id="cashout-field" hidden>
+              <label for="f-cashout">Cash-out amount ($)</label>
+              <input type="number" id="f-cashout" name="cashout" min="0" step="0.01">
+            </div>
+            <div class="field wide">
+              <label for="f-notes">Notes</label>
+              <textarea id="f-notes" name="notes" placeholder="Why you like it, line movement, etc."></textarea>
+            </div>
+          </div>
+
+          <div class="reco" id="reco" aria-live="polite"></div>
+
+          <div class="actions">
+            <button type="submit" class="btn primary" id="save-btn">Add bet</button>
+            <button type="button" class="btn" id="cancel-edit" hidden>Cancel edit</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <div>
+            <h2>Your bets</h2>
+            <p class="sub" id="bets-summary"></p>
+          </div>
+        </div>
+        <div class="filters">
+          <input type="text" id="filter-text" placeholder="Search event, pick, notes" aria-label="Search bets">
+          <select id="filter-status" aria-label="Filter by result">
+            <option value="">All results</option>
+            <option value="pending">Pending</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+            <option value="push">Push</option>
+            <option value="void">Void</option>
+            <option value="cashout">Cashed out</option>
+          </select>
+          <select id="filter-sport" aria-label="Filter by sport"><option value="">All sports</option></select>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="bets-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Settings ================= -->
+    <section class="view" id="view-settings" role="tabpanel" hidden>
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Bankroll and units</h2>
+          <p class="sub">Your bankroll is the money set aside for betting only. A unit is a fixed slice of it.</p>
+          <form id="settings-form">
+            <div class="form-grid">
+              <div class="field">
+                <label for="s-bankroll">Starting bankroll ($)</label>
+                <input type="number" id="s-bankroll" name="startingBankroll" min="0" step="0.01" required>
+              </div>
+              <div class="field">
+                <label for="s-unitpct">Unit size (% of bankroll)</label>
+                <input type="number" id="s-unitpct" name="unitPct" min="0.1" max="25" step="0.1" required>
+              </div>
+              <div class="field wide">
+                <span class="label">Risk profile presets</span>
+                <div class="segmented" id="risk-presets" role="group" aria-label="Risk profile">
+                  <button type="button" data-profile="conservative" aria-pressed="false">Conservative 1%</button>
+                  <button type="button" data-profile="moderate" aria-pressed="false">Moderate 2%</button>
+                  <button type="button" data-profile="aggressive" aria-pressed="false">Aggressive 3%</button>
+                </div>
+                <span class="hint" id="risk-note">&nbsp;</span>
+              </div>
+              <div class="field wide">
+                <label for="s-basis">Unit is based on</label>
+                <select id="s-basis" name="unitBasis">
+                  <option value="current">Current bankroll (unit shrinks after losses, grows after wins)</option>
+                  <option value="starting">Starting bankroll (unit stays fixed)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="s-kelly">Kelly multiplier</label>
+                <select id="s-kelly" name="kellyMultiplier">
+                  <option value="0.1">0.1× (very cautious)</option>
+                  <option value="0.25">0.25× quarter Kelly (recommended)</option>
+                  <option value="0.5">0.5× half Kelly</option>
+                  <option value="1">1× full Kelly (high variance)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="s-maxunits">Max bet (units)</label>
+                <input type="number" id="s-maxunits" name="maxUnits" min="0.5" max="20" step="0.5" required>
+              </div>
+              <div class="field">
+                <label for="s-oddsformat">Odds format</label>
+                <select id="s-oddsformat" name="oddsFormat">
+                  <option value="american">American (-110, +150)</option>
+                  <option value="decimal">Decimal (1.91, 2.50)</option>
+                </select>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn primary">Save settings</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="stack">
+          <div class="card">
+            <h2>Your data</h2>
+            <p class="sub">Everything is stored in this browser only. Back up regularly, and use the backup file to move to another device.</p>
+            <div class="actions" style="margin-top:0">
+              <button type="button" class="btn" id="export-csv">Export CSV</button>
+              <button type="button" class="btn" id="export-json">Download backup</button>
+              <label class="btn" for="import-json">Restore backup</label>
+              <input type="file" id="import-json" accept="application/json,.json" class="visually-hidden">
+            </div>
+            <div class="actions">
+              <button type="button" class="btn" id="load-sample">Load sample bets</button>
+              <button type="button" class="btn danger" id="clear-all">Delete all bets</button>
+            </div>
+          </div>
+          <div class="card">
+            <h2>How units are recommended</h2>
+            <p class="sub" style="margin-bottom:8px"><strong>By confidence.</strong> 1 = 0.5u, 2 = 1u, 3 = 1.5u, 4 = 2u, 5 = 3u, never above your max bet.</p>
+            <p class="sub" style="margin-bottom:8px"><strong>By Kelly.</strong> If you enter your own win probability, the stake is the Kelly fraction of your bankroll times your multiplier. If your probability is below the break-even implied by the odds, you get a "pass".</p>
+            <p class="sub" style="margin:0">Recommendations are rounded to the nearest 0.25u. They are a sizing tool, not a guarantee. Only bet what you can afford to lose.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="js/calc.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
